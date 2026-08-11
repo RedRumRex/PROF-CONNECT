@@ -1,0 +1,35 @@
+$kind: http-request
+name: Health Check
+method: GET
+url: '{{base_url}}/api/health'
+description: |-
+  Liveness check — no auth required.
+  Verifies the service is up and returns current UTC time.
+order: 1000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 OK", function () {
+        pm.response.to.have.status(200);
+      });
+
+      pm.test("Response has ok: true", function () {
+        const json = pm.response.json();
+        pm.expect(json.ok).to.be.true;
+      });
+
+      pm.test("Response has service name", function () {
+        const json = pm.response.json();
+        pm.expect(json.service).to.equal("profconnect-status-api");
+      });
+
+      pm.test("Response has a time field (ISO string)", function () {
+        const json = pm.response.json();
+        pm.expect(json.time).to.be.a("string");
+        pm.expect(new Date(json.time).toString()).to.not.equal("Invalid Date");
+      });
+
+      pm.test("Response time is under 500ms", function () {
+        pm.expect(pm.response.responseTime).to.be.below(500);
+      });

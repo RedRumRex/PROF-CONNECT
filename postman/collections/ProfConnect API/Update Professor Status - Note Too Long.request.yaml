@@ -1,0 +1,30 @@
+$kind: http-request
+name: 'Update Professor Status - Note Too Long'
+method: POST
+url: '{{base_url}}/api/professors/{{professor_id}}/status'
+description: |-
+  Negative test: note field exceeding 280 characters should return 422.
+  Pydantic enforces max_length=280 on the note field.
+order: 11000
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: x-api-key
+    value: '{{admin_key}}'
+body:
+  type: json
+  content: |-
+    {"status": "available", "note": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 422 Unprocessable Entity", function () {
+        pm.response.to.have.status(422);
+      });
+
+      pm.test("Validation error mentions note field", function () {
+        const json = pm.response.json();
+        const noteError = json.detail.find(e => e.loc && e.loc.includes("note"));
+        pm.expect(noteError).to.not.be.undefined;
+      });

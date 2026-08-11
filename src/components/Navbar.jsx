@@ -1,8 +1,9 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { clearRole } from '../lib/auth'
 
 const NAV_LINKS = [
   { to: '/home',                                          label: 'Home'     },
-  { to: '/explore',                                       label: 'Explore'  },
+  { to: '/home#explore',                                  label: 'Explore'  },
   { to: '/messages', pathKey: '/messages',                label: 'Messages' },
   { to: 'https://www.thapar.edu/students/pages/webkiosk', label: 'Webkiosk', external: true },
   { to: 'https://lms.thapar.edu/moodle/login/index.php', label: 'LMS', external: true }
@@ -10,6 +11,12 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    clearRole()
+    navigate('/login')
+  }
 
   return (
     <nav className="bg-stone-950/60 backdrop-blur-3xl sticky top-0 z-50 border-b border-white/[0.05] shadow-[0_4px_40px_rgba(29,8,7,0.5)]">
@@ -52,17 +59,6 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="relative hidden lg:block group">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 text-[18px] group-focus-within:text-primary transition-colors">
-              search
-            </span>
-            <input
-              className="bg-white/[0.05] border border-white/10 rounded-full pl-10 pr-4 py-2 text-sm w-64 focus:ring-1 focus:ring-primary/50 focus:bg-white/10 transition-all placeholder:text-stone-600 outline-none text-on-surface"
-              placeholder="Discovery"
-              type="text"
-            />
-          </div>
-
           <button className="p-2 rounded-full hover:bg-white/[0.06] text-stone-400 hover:text-stone-100 transition-all active:scale-90">
             <span className="material-symbols-outlined">notifications</span>
           </button>
@@ -71,17 +67,13 @@ export default function Navbar() {
   <span className="material-symbols-outlined">settings</span>
 </Link>
 
-          <Link
-            to="/profile"
-            className="w-9 h-9 rounded-full border border-white/10 overflow-hidden hover:border-primary/50 transition-colors"
-            title="View Profile"
+          <button
+            onClick={handleLogout}
+            title="Log out"
+            className="p-2 rounded-full hover:bg-red-500/10 text-stone-400 hover:text-red-400 transition-all active:scale-90"
           >
-            <img
-              src="https://api.dicebear.com/9.x/notionists/svg?seed=ProfConnect&backgroundColor=321817"
-              alt="Profile avatar"
-              className="w-full h-full object-cover"
-            />
-          </Link>
+            <span className="material-symbols-outlined">logout</span>
+          </button>
         </div>
 
       </div>

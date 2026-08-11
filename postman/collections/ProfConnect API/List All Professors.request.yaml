@@ -1,0 +1,50 @@
+$kind: http-request
+name: List All Professors
+method: GET
+url: '{{base_url}}/api/professors'
+description: |-
+  Returns all professors with their current status.
+  No auth required. Used by Explore/Dashboard pages on initial load.
+order: 2000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 OK", function () {
+        pm.response.to.have.status(200);
+      });
+
+      pm.test("Response is an array", function () {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an("array");
+      });
+
+      pm.test("Returns 6 professors", function () {
+        const json = pm.response.json();
+        pm.expect(json).to.have.lengthOf(6);
+      });
+
+      pm.test("Each professor has required fields", function () {
+        const json = pm.response.json();
+        const requiredFields = ["id", "name", "department", "status", "updatedAt"];
+        json.forEach(function(prof) {
+          requiredFields.forEach(function(field) {
+            pm.expect(prof).to.have.property(field);
+          });
+        });
+      });
+
+      pm.test("All statuses are valid enum values", function () {
+        const json = pm.response.json();
+        const validStatuses = ["available", "busy", "away"];
+        json.forEach(function(prof) {
+          pm.expect(validStatuses).to.include(prof.status);
+        });
+      });
+
+      pm.test("All expected professor IDs are present", function () {
+        const json = pm.response.json();
+        const ids = json.map(p => p.id);
+        const expected = ["aris-thorne", "elena-vance", "julian-kross", "marcus-wei", "sarah-jenkins", "arthur-dent"];
+        expected.forEach(id => pm.expect(ids).to.include(id));
+      });

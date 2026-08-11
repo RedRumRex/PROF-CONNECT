@@ -1,0 +1,20 @@
+$kind: http-request
+name: 'Get Professor Status - 404'
+method: GET
+url: '{{base_url}}/api/professors/unknown-professor/status'
+description: |-
+  Negative test: requesting status for a non-existent professor ID should return 404.
+order: 4000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 404 Not Found", function () {
+        pm.response.to.have.status(404);
+      });
+
+      pm.test("Error detail mentions unknown professor", function () {
+        const json = pm.response.json();
+        pm.expect(json.detail).to.be.a("string");
+        pm.expect(json.detail.toLowerCase()).to.include("unknown professor");
+      });

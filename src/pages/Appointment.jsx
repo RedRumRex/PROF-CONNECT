@@ -171,7 +171,7 @@ export default function Appointment() {
               </p>
             </div>
             <button
-              onClick={() => navigate('/explore')}
+              onClick={() => navigate('/home#explore')}
               className="ml-auto btn-primary px-5 py-2 text-sm"
             >
               Browse More

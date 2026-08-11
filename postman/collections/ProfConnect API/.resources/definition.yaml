@@ -1,0 +1,15 @@
+$kind: collection
+name: ProfConnect API
+description: |-
+  Test suite for the ProfConnect Status API — a FastAPI backend that bridges
+  the frontend and Raspberry Pi door units for real-time professor availability.
+
+  Base URL: {{base_url}}
+  Auth: x-api-key header (device key per professor, or ADMIN_KEY for any professor)
+variables:
+  - key: base_url
+    value: 'http://localhost:4000'
+  - key: professor_id
+    value: 'aris-thorne'
+  - key: admin_key
+    value: ''

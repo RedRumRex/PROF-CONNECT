@@ -1,0 +1,37 @@
+$kind: http-request
+name: Get Professor Status
+method: GET
+url: '{{base_url}}/api/professors/{{professor_id}}/status'
+description: |-
+  Returns the current status for a single professor.
+  No auth required. Used by the Profile page and Raspberry Pi on boot.
+order: 3000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 OK", function () {
+        pm.response.to.have.status(200);
+      });
+
+      pm.test("Response has professor id", function () {
+        const json = pm.response.json();
+        pm.expect(json.id).to.equal(pm.variables.get("professor_id"));
+      });
+
+      pm.test("Response has valid status", function () {
+        const json = pm.response.json();
+        pm.expect(["available", "busy", "away"]).to.include(json.status);
+      });
+
+      pm.test("Response has name and department", function () {
+        const json = pm.response.json();
+        pm.expect(json.name).to.be.a("string").and.not.empty;
+        pm.expect(json.department).to.be.a("string").and.not.empty;
+      });
+
+      pm.test("Response has updatedAt timestamp", function () {
+        const json = pm.response.json();
+        pm.expect(json.updatedAt).to.be.a("string");
+        pm.expect(new Date(json.updatedAt).toString()).to.not.equal("Invalid Date");
+      });

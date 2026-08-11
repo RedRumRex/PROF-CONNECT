@@ -1,11 +1,11 @@
 import { useLocation, Link } from 'react-router-dom'
 
 const ITEMS = [
-  { icon: 'dashboard',              to: '/dashboard' },
-  { icon: 'explore',                to: '/explore'   },
-  { icon: 'menu_book',              to: '/explore'   },
-  { icon: 'group',                  to: '/explore'   },
-  { icon: 'account_balance_wallet', to: '/explore'   },
+  { icon: 'dashboard',              to: '/dashboard'    },
+  { icon: 'explore',                to: '/home#explore' },
+  { icon: 'menu_book',              to: '/home#explore' },
+  { icon: 'group',                  to: '/home#explore' },
+  { icon: 'account_balance_wallet', to: '/home#explore' },
 ]
 
 export default function Sidebar() {

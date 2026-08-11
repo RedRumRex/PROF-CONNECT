@@ -1,22 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
-
-const TIMETABLE = [
-  { day: 'Mon', time: '09:00–11:30', title: 'Quantum Computing', room: 'Lab 402',        color: 'border-primary-container' },
-  { day: 'Tue', time: null,          title: null,                 room: null,             color: null                       },
-  { day: 'Wed', time: '10:00–12:00', title: 'Thesis Reviews',    room: 'Office B12',     color: 'border-primary-container' },
-  { day: 'Thu', time: '14:00–16:30', title: 'Advanced AI',       room: 'Lecture Hall 1', color: 'border-tertiary'          },
-  { day: 'Fri', time: '09:00–11:30', title: 'Quantum Computing', room: 'Lab 402',        color: 'border-primary-container' },
-]
-
-const INITIAL_RESOURCES = [
-  { icon: 'folder_zip',  title: 'Resource Pack v2', sub: 'Quantum basics', downloaded: false },
-  { icon: 'assignment',  title: 'Assignment #4',    sub: 'Due in 3 days',  downloaded: false },
-  { icon: 'groups',      title: 'Seminar Group',    sub: '12 Members',     downloaded: false },
-]
+import { getMe } from '../api/auth'
+import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
+import { mapTeacherProfile } from '../lib/profile'
 
 const NOTIFICATIONS = [
   { id: 1, text: 'Assignment #4 deadline in 3 days',        icon: 'warning',       read: false },
@@ -24,27 +13,42 @@ const NOTIFICATIONS = [
   { id: 3, text: 'Thesis review confirmed for Wednesday',   icon: 'event_available', read: true },
 ]
 
+// Empty for now — real appointment requests come from the `appointment`
+// table once that flow is wired up.
+const INITIAL_APPOINTMENT_REQUESTS = []
+
 export default function Dashboard() {
   const navigate = useNavigate()
 
-  const [resources,         setResources]         = useState(INITIAL_RESOURCES)
+  const [teacher, setTeacher] = useState(() => mapTeacherProfile(getProfile()))
+
+  useEffect(() => {
+    const token = getToken()
+    if (!token) {
+      navigate('/login')
+      return
+    }
+    getMe(token)
+      .then((data) => {
+        persistProfile(data.profile)
+        setTeacher(mapTeacherProfile(data.profile))
+      })
+      .catch(() => {
+        // Background refresh only — keep showing the cached profile.
+      })
+  }, [navigate])
+
+  const [requests,          setRequests]          = useState(INITIAL_APPOINTMENT_REQUESTS)
   const [showNotifications, setShowNotifications] = useState(false)
   const [notifications,     setNotifications]     = useState(NOTIFICATIONS)
   const [messageOpen,       setMessageOpen]       = useState(false)
   const [messageText,       setMessageText]       = useState('')
   const [messageSent,       setMessageSent]       = useState(false)
-  const [abstract,          setAbstract]          = useState(false)
 
   const unreadCount = notifications.filter(n => !n.read).length
 
   const markAllRead = () =>
     setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-
-  const handleResource = (title) => {
-    setResources(prev =>
-      prev.map(r => r.title === title ? { ...r, downloaded: true } : r)
-    )
-  }
 
   const sendMessage = () => {
     if (!messageText.trim()) return
@@ -52,6 +56,12 @@ export default function Dashboard() {
     setMessageText('')
     setTimeout(() => { setMessageSent(false); setMessageOpen(false) }, 2500)
   }
+
+  const respondToRequest = (id, status) => {
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r))
+  }
+
+  const pendingCount = requests.filter(r => r.status === 'pending').length
 
   return (
     <div className="min-h-screen bg-background text-on-surface font-body">
@@ -68,21 +78,15 @@ export default function Dashboard() {
               <span className="text-[10px] uppercase font-bold tracking-widest">Currently Online</span>
             </div>
             <h2 className="text-5xl md:text-6xl font-headline font-extrabold text-on-surface tracking-tighter">
-              Prof. Sharma
+              {teacher.name}
             </h2>
             <p className="text-on-surface-variant text-lg leading-relaxed max-w-xl opacity-80">
-              Head of Quantum Informatics. Dedicated to bridging the gap between theoretical physics and neural architecture.
+              {teacher.designation} &middot; {teacher.department} &middot; Room {teacher.roomNumber} &middot; h-index {teacher.hIndex}
             </p>
+            <p className="text-on-surface-variant text-sm opacity-60">{teacher.email}</p>
           </div>
 
           <div className="flex gap-3 w-full md:w-auto flex-wrap">
-            <button
-              onClick={() => navigate('/appointment/aris-thorne')}
-              className="btn-primary flex-1 md:flex-none px-6 py-4 flex items-center justify-center gap-2 text-sm"
-            >
-              <span className="material-symbols-outlined text-lg">event_available</span>
-              Book Appointment
-            </button>
             <button
               onClick={() => setMessageOpen(true)}
               className="flex-1 md:flex-none px-6 py-4 rounded-xl border border-outline-variant/30 text-on-surface font-bold text-sm hover:bg-surface-container-high transition-colors flex items-center justify-center gap-2 active:scale-95"
@@ -172,134 +176,69 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── MAIN GRID ────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-          {/* Timetable */}
-          <div className="lg:col-span-8 glass-panel rounded-2xl p-8 shadow-2xl relative overflow-hidden group">
-            <div className="absolute -top-24 -right-24 w-64 h-64 bg-primary/5 blur-[100px] rounded-full pointer-events-none group-hover:bg-primary/10 transition-all duration-700" />
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h3 className="text-2xl font-headline font-bold text-on-surface">Weekly Timetable</h3>
-                <p className="text-on-surface-variant text-sm">Academic Semester Fall 2024</p>
-              </div>
-              <span className="px-3 py-1 rounded bg-surface-container-highest text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">
-                Office Hours: 2PM–4PM
-              </span>
+        {/* ── APPOINTMENT REQUESTS ─────────────────── */}
+        <section className="glass-panel rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-2xl font-headline font-bold text-on-surface">Appointment Requests</h3>
+              <p className="text-on-surface-variant text-sm">Students waiting on your response</p>
             </div>
-            <div className="grid grid-cols-5 gap-4">
-              {TIMETABLE.map(({ day, time, title, room, color }) => (
-                <div key={day} className="space-y-4">
-                  <span className="text-[10px] text-on-surface-variant font-black uppercase opacity-40">{day}</span>
-                  {time ? (
-                    <div className={`h-32 rounded-xl bg-surface-container/80 border-l-2 ${color} p-3 space-y-1.5 hover:bg-surface-container transition-colors cursor-pointer`}>
-                      <p className="text-[10px] font-bold text-primary">{time}</p>
-                      <p className="text-xs font-headline font-bold leading-snug">{title}</p>
-                      <p className="text-[9px] text-on-surface-variant">{room}</p>
-                    </div>
-                  ) : (
-                    <div className="h-32 rounded-xl bg-surface-container-low border border-outline-variant/5 flex items-center justify-center">
-                      <span className="material-symbols-outlined text-on-surface-variant/20">coffee</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <span className="px-3 py-1 rounded bg-surface-container-highest text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">
+              {pendingCount} Pending
+            </span>
           </div>
 
-          {/* Side panels */}
-          <div className="lg:col-span-4 flex flex-col gap-6">
-
-            {/* Latest publication */}
-            <div className="bg-surface-container-low rounded-2xl p-6 border border-outline-variant/10">
-              <div className="flex items-center gap-4 mb-5">
-                <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center">
-                  <span className="material-symbols-outlined text-primary">clinical_notes</span>
-                </div>
-                <div>
-                  <h4 className="font-headline font-bold text-sm">Latest Publication</h4>
-                  <p className="text-xs text-on-surface-variant">September 2024</p>
-                </div>
-              </div>
-              <p className="text-sm font-medium mb-4 leading-relaxed">
-                "Neural Superposition: The next frontier in silicon-based quantum logic gates."
-              </p>
-              {abstract ? (
-                <div className="text-xs text-on-surface-variant leading-relaxed mb-3 p-3 bg-surface-container rounded-xl border border-outline-variant/10">
-                  This paper investigates polymorphic superposition states in silicon-based quantum gates, proposing a novel architecture that achieves 94% coherence fidelity at room temperature using CNT lattice scaffolding.
-                </div>
-              ) : null}
-              <button
-                onClick={() => setAbstract(v => !v)}
-                className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 hover:gap-3 transition-all"
-              >
-                {abstract ? 'Hide Abstract' : 'Read Abstract'}
-                <span className="material-symbols-outlined text-sm">
-                  {abstract ? 'expand_less' : 'arrow_forward'}
-                </span>
-              </button>
+          {requests.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <span className="material-symbols-outlined text-3xl text-on-surface-variant/30">event_busy</span>
+              <p className="text-sm text-on-surface-variant opacity-60">No appointment requests yet.</p>
             </div>
+          ) : (
+          <div className="space-y-3">
+            {requests.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-surface-container-low rounded-xl border border-outline-variant/10"
+              >
+                <img src={r.avatar} alt={r.name} className="w-12 h-12 rounded-xl shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-on-surface">{r.name}</p>
+                  <p className="text-xs text-on-surface-variant">{r.dept}</p>
+                  <p className="text-xs text-on-surface-variant opacity-70 mt-0.5">
+                    {r.reason} · {r.date}, {r.time}
+                  </p>
+                </div>
 
-            {/* Availability */}
-            <div className="flex-1 bg-surface-container-high rounded-2xl p-6 border border-outline-variant/20">
-              <h4 className="font-headline font-bold mb-5">Availability Overview</h4>
-              <div className="space-y-5">
-                {[
-                  { label: 'Morning Slots',   value: 'Full',        color: 'bg-error-container',    width: 'w-full'  },
-                  { label: 'Afternoon Slots', value: '4 Available', color: 'bg-tertiary-container', width: 'w-[40%]' },
-                ].map(({ label, value, color, width }) => (
-                  <div key={label}>
-                    <div className="flex items-center justify-between text-xs mb-2">
-                      <span className="text-on-surface-variant">{label}</span>
-                      <span className={value === 'Full' ? 'text-error font-bold' : 'text-tertiary font-bold'}>
-                        {value}
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
-                      <div className={`h-full ${color} ${width} rounded-full`} />
-                    </div>
+                {r.status === 'pending' ? (
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => respondToRequest(r.id, 'accepted')}
+                      className="px-3 py-2 rounded-xl bg-tertiary/10 border border-tertiary/20 text-tertiary text-xs font-bold hover:bg-tertiary/20 transition-colors"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => respondToRequest(r.id, 'declined')}
+                      className="px-3 py-2 rounded-xl border border-outline-variant/20 text-on-surface-variant text-xs font-bold hover:bg-surface-container-high transition-colors"
+                    >
+                      Decline
+                    </button>
                   </div>
-                ))}
+                ) : (
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full shrink-0 self-start sm:self-center ${
+                      r.status === 'accepted'
+                        ? 'bg-tertiary/10 text-tertiary'
+                        : 'bg-error/10 text-error'
+                    }`}
+                  >
+                    {r.status}
+                  </span>
+                )}
               </div>
-              <div className="mt-6 pt-5 border-t border-outline-variant/10">
-                <button
-                  onClick={() => navigate('/appointment/aris-thorne')}
-                  className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
-                >
-                  <span className="material-symbols-outlined text-sm">calendar_month</span>
-                  Book a Slot
-                </button>
-              </div>
-              <p className="text-[10px] text-on-surface-variant leading-relaxed italic opacity-60 mt-3">
-                *Typically responds within 24 business hours.
-              </p>
-            </div>
+            ))}
           </div>
-        </div>
-
-        {/* ── RESOURCE CARDS ───────────────────────── */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {resources.map(({ icon, title, sub, downloaded }) => (
-            <button
-              key={title}
-              onClick={() => handleResource(title)}
-              className={`bg-surface-container-lowest border border-outline-variant/10 p-6 rounded-2xl
-                         flex items-center gap-4 hover:bg-surface-container transition-colors cursor-pointer group text-left
-                         ${downloaded ? 'border-primary/20' : ''}`}
-            >
-              <span className={`material-symbols-outlined text-3xl transition-opacity ${downloaded ? 'text-primary opacity-100' : 'opacity-30 group-hover:opacity-100'}`}
-                style={downloaded ? { fontVariationSettings: "'FILL' 1" } : {}}
-              >
-                {downloaded ? 'check_circle' : icon}
-              </span>
-              <div>
-                <h5 className="text-sm font-bold">{title}</h5>
-                <p className="text-[10px] text-on-surface-variant uppercase tracking-wide">
-                  {downloaded ? 'Accessed ✓' : sub}
-                </p>
-              </div>
-            </button>
-          ))}
+          )}
         </section>
       </main>
 

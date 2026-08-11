@@ -1,0 +1,15 @@
+name: ProfConnect Local
+schema: https://schema.getpostman.com/json/collection/v2.1.0/environment.json
+values:
+  - key: base_url
+    value: 'http://localhost:4000'
+    type: default
+    enabled: true
+  - key: admin_key
+    value: 'change-this-admin-key'
+    type: secret
+    enabled: true
+  - key: professor_id
+    value: 'aris-thorne'
+    type: default
+    enabled: true

@@ -1,0 +1,35 @@
+$kind: http-request
+name: Get Professor History
+method: GET
+url: '{{base_url}}/api/professors/{{professor_id}}/history'
+description: |-
+  Returns the last 25 status changes for a professor.
+  No auth required. Useful for debugging Pi connectivity.
+order: 5000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 OK", function () {
+        pm.response.to.have.status(200);
+      });
+
+      pm.test("Response is an array", function () {
+        const json = pm.response.json();
+        pm.expect(json).to.be.an("array");
+      });
+
+      pm.test("History has at most 25 entries", function () {
+        const json = pm.response.json();
+        pm.expect(json.length).to.be.at.most(25);
+      });
+
+      pm.test("Each history entry has required fields", function () {
+        const json = pm.response.json();
+        if (json.length > 0) {
+          const entry = json[0];
+          pm.expect(entry).to.have.property("status");
+          pm.expect(entry).to.have.property("source");
+          pm.expect(entry).to.have.property("updatedAt");
+        }
+      });

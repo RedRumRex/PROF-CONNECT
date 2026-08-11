@@ -1,0 +1,19 @@
+$kind: http-request
+name: 'Get Professor History - 404'
+method: GET
+url: '{{base_url}}/api/professors/unknown-professor/history'
+description: |-
+  Negative test: requesting history for a non-existent professor ID should return 404.
+order: 6000
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 404 Not Found", function () {
+        pm.response.to.have.status(404);
+      });
+
+      pm.test("Error detail is present", function () {
+        const json = pm.response.json();
+        pm.expect(json.detail).to.be.a("string");
+      });

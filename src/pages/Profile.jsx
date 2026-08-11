@@ -215,7 +215,7 @@ export default function Profile() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <p className="text-on-surface-variant text-lg mb-4">Professor not found.</p>
-          <button onClick={() => navigate('/explore')} className="btn-primary px-6 py-3">
+          <button onClick={() => navigate('/home#explore')} className="btn-primary px-6 py-3">
             Back to Explore
           </button>
         </div>
@@ -234,13 +234,13 @@ export default function Profile() {
 
         {/* Back */}
         <button
-          onClick={() => navigate('/explore')}
+          onClick={() => navigate('/home#explore')}
           className="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors group"
         >
           <span className="material-symbols-outlined group-hover:-translate-x-1 transition-transform">
             arrow_back
           </span>
-          <span className="text-sm font-medium">Back to Explore</span>
+          <span className="text-sm font-medium">Back to Home</span>
         </button>
 
         {/* ── HERO ─────────────────────────────────────────── */}

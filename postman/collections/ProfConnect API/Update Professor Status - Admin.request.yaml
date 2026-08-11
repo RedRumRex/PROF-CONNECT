@@ -1,0 +1,51 @@
+$kind: http-request
+name: 'Update Professor Status - Admin'
+method: POST
+url: '{{base_url}}/api/professors/{{professor_id}}/status'
+description: |-
+  Updates a professor's status using the ADMIN_KEY.
+  Simulates the web-app override flow (professor updating remotely).
+  Requires ADMIN_KEY to be set in the environment.
+order: 7000
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: x-api-key
+    value: '{{admin_key}}'
+body:
+  type: json
+  content: |-
+    {"status": "available", "note": "In office, drop by!"}
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 200 OK", function () {
+        pm.response.to.have.status(200);
+      });
+
+      pm.test("Response reflects updated status", function () {
+        const json = pm.response.json();
+        pm.expect(json.status).to.equal("available");
+      });
+
+      pm.test("Response has correct note", function () {
+        const json = pm.response.json();
+        pm.expect(json.note).to.equal("In office, drop by!");
+      });
+
+      pm.test("Source is web-app", function () {
+        const json = pm.response.json();
+        pm.expect(json.source).to.equal("web-app");
+      });
+
+      pm.test("Response has professor id and name", function () {
+        const json = pm.response.json();
+        pm.expect(json.id).to.equal(pm.variables.get("professor_id"));
+        pm.expect(json.name).to.be.a("string").and.not.empty;
+      });
+
+      pm.test("updatedAt is a valid ISO timestamp", function () {
+        const json = pm.response.json();
+        pm.expect(new Date(json.updatedAt).toString()).to.not.equal("Invalid Date");
+      });

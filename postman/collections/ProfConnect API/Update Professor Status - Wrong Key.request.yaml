@@ -1,0 +1,28 @@
+$kind: http-request
+name: 'Update Professor Status - Wrong Key'
+method: POST
+url: '{{base_url}}/api/professors/{{professor_id}}/status'
+description: |-
+  Negative test: POST with an invalid x-api-key should return 403 Forbidden.
+order: 9000
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: x-api-key
+    value: totally-wrong-key
+body:
+  type: json
+  content: |-
+    {"status": "busy"}
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Status is 403 Forbidden", function () {
+        pm.response.to.have.status(403);
+      });
+
+      pm.test("Error detail mentions invalid API key", function () {
+        const json = pm.response.json();
+        pm.expect(json.detail.toLowerCase()).to.include("invalid");
+      });

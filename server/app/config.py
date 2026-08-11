@@ -18,6 +18,18 @@ CORS_ORIGIN = [
 
 ADMIN_KEY = os.getenv("ADMIN_KEY") or None
 
+# ── Supabase (student/teacher/auth tables) ──────────────────────────────
+# Service-role key only — this backend needs to write to student/teacher/
+# *_auth tables directly, bypassing RLS. Never expose this key to the
+# frontend; the frontend never talks to Supabase directly.
+SUPABASE_URL = os.getenv("SUPABASE_URL") or None
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or None
+
+# ── JWT auth ─────────────────────────────────────────────────────────────
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24h
+
 
 def _load_device_keys() -> dict:
     """Load per-professor device API keys. Falls back to devices.example.json

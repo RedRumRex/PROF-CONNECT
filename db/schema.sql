@@ -1,0 +1,73 @@
+-- ============================================================
+-- ProfConnect — Supabase schema
+-- Run in Supabase SQL Editor.
+--
+-- This drops the manually-created `student` table and recreates
+-- it here in code (same fields as before), then adds `teacher`,
+-- `appointment`, `student_auth`, `teacher_auth`.
+-- ============================================================
+
+-- ── student ────────────────────────────────────────────────
+-- Drops your manually-created table and any dependents, then
+-- recreates it with the same fields you had:
+--   rollno int8 PK, name varchar, phone_no int8, branch varchar,
+--   email varchar, year int4
+drop table if exists public.student cascade;
+
+create table public.student (
+  rollno    bigint primary key,
+  name      varchar,
+  phone_no  bigint,
+  branch    varchar,
+  email     varchar,
+  year      integer
+);
+
+-- ── teacher ────────────────────────────────────────────────
+create table public.teacher (
+  teacher_id   bigint primary key,
+  name         varchar,
+  room_number  varchar not null,
+  department   varchar not null,
+  designation  varchar not null,
+  h_index      bigint not null
+);
+
+-- ── appointment ────────────────────────────────────────────
+-- status is nullable: NULL = pending request, true = scheduled,
+-- false = declined by teacher. This matches the 3-state
+-- pending/accept/decline flow already built in Dashboard.jsx.
+-- (Strictly-boolean-not-null was requested; flagging this deviation —
+-- happy to switch to `not null default false` if you'd rather.)
+create table public.appointment (
+  appointment_id   bigint generated always as identity primary key,
+  student_id       bigint not null references public.student(rollno) on delete cascade,
+  teacher_id       bigint not null references public.teacher(teacher_id) on delete cascade,
+  appointment_date date not null,
+  appointment_time time not null,
+  status           boolean,
+  created_at       timestamptz not null default now()
+);
+
+create index idx_appointment_student on public.appointment(student_id);
+create index idx_appointment_teacher on public.appointment(teacher_id);
+
+-- ── student_auth ───────────────────────────────────────────
+-- 1:1 with student, keyed off the existing rollno PK.
+create table public.student_auth (
+  rollno         bigint primary key references public.student(rollno) on delete cascade,
+  password_hash  text not null,
+  created_at     timestamptz not null default now(),
+  last_login_at  timestamptz
+);
+
+-- ── teacher_auth ───────────────────────────────────────────
+-- 1:1 with teacher. email lives here (login identifier) since
+-- teacher has no email column of its own.
+create table public.teacher_auth (
+  teacher_id     bigint primary key references public.teacher(teacher_id) on delete cascade,
+  email          varchar not null unique,
+  password_hash  text not null,
+  created_at     timestamptz not null default now(),
+  last_login_at  timestamptz
+);

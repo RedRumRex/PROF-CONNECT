@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login          from './pages/Login'
+import SignUp         from './pages/SignUp'
 import Home           from './pages/Home'
-import Explore        from './pages/Explore'
 import Dashboard      from './pages/Dashboard'
 import Appointment    from './pages/Appointment'
 import StudentProfile from './pages/StudentProfile'
@@ -15,8 +15,8 @@ export default function App() {
       <Routes>
         <Route path="/"                  element={<Navigate to="/login" replace />} />
         <Route path="/login"             element={<Login />} />
+        <Route path="/signup"            element={<SignUp />} />
         <Route path="/home"              element={<Home />} />
-        <Route path="/explore"           element={<Explore />} />
         <Route path="/profile/:id"       element={<Profile />} />
         <Route path="/profile"           element={<StudentProfile />} />
         <Route path="/dashboard"         element={<Dashboard />} />

@@ -3,3 +3,7 @@ uvicorn[standard]>=0.30
 python-socketio>=5.11
 python-dotenv>=1.0
 pydantic>=2.7
+pydantic[email]>=2.7
+supabase>=2.6
+bcrypt>=4.1
+pyjwt>=2.9
