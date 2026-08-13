@@ -8,6 +8,9 @@ from .config import CORS_ORIGIN
 from .routers.professors import router as professors_router
 from .routers.auth import router as auth_router
 from .routers.teachers import router as teachers_router
+from .routers.appointments import router as appointments_router
+from .routers.messages import router as messages_router
+from .routers.availability import router as availability_router
 from .sockets import sio
 
 fastapi_app = FastAPI(title="ProfConnect Status API")
@@ -33,6 +36,9 @@ async def health():
 fastapi_app.include_router(professors_router, prefix="/api/professors")
 fastapi_app.include_router(auth_router, prefix="/api/auth")
 fastapi_app.include_router(teachers_router, prefix="/api/teachers")
+fastapi_app.include_router(appointments_router, prefix="/api/appointments")
+fastapi_app.include_router(messages_router, prefix="/api/messages")
+fastapi_app.include_router(availability_router, prefix="/api/availability")
 
 # Mount Socket.IO alongside the REST routes on the same ASGI app/port.
 # socketio_path="socket.io" matches the socket.io-client default of

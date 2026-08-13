@@ -10,3 +10,14 @@ export async function fetchTeachers() {
   }
   return res.json()
 }
+
+// GET /api/teachers/:id — single teacher, used by the Profile and
+// Appointment pages reached from a card in the Explore grid.
+export async function fetchTeacher(id) {
+  const res = await fetch(`${API_BASE_URL}/api/teachers/${id}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data?.detail || `Failed to fetch teacher (${res.status})`)
+  }
+  return res.json()
+}

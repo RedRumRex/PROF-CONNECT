@@ -3,14 +3,38 @@ import { useParams, useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
+import { fetchTeacher } from '../api/teachers'
+import { createAppointment, fetchMyAppointmentsAsStudent } from '../api/appointments'
+import { fetchThread, sendMessage as postMessage } from '../api/messages'
+import { getToken, getProfile } from '../lib/auth'
+import { mapTeacherCard } from '../lib/profile'
 
-const PROFESSORS = {
-  'aris-thorne':   { name: 'Dr. Aris Thorne',    role: 'Neural Engineering Lead',      avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=ArisThorne&backgroundColor=321817'   },
-  'elena-vance':   { name: 'Dr. Elena Vance',     role: 'Theoretical Physics',          avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=ElenaVance&backgroundColor=321817'   },
-  'julian-kross':  { name: 'Prof. Julian Kross',  role: 'Computational Ethics Lead',    avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=JulianKross&backgroundColor=321817'  },
-  'marcus-wei':    { name: 'Dr. Marcus Wei',      role: 'Cyber-Physical Security',      avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=MarcusWei&backgroundColor=321817'    },
-  'sarah-jenkins': { name: 'Dr. Sarah Jenkins',   role: 'Genomic Computing Lead',       avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=SarahJenkins&backgroundColor=321817' },
-  'arthur-dent':   { name: 'Prof. Arthur Dent',   role: 'Astronomy & Comp. Logic',      avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=ArthurDent&backgroundColor=321817'   },
+// Turns a row from GET /api/messages/thread into the shape this page's
+// chat bubbles render.
+function mapThreadMessage(row, profAvatar) {
+  return {
+    id: row.message_id,
+    from: row.sender_role === 'teacher' ? 'prof' : 'user',
+    avatar: row.sender_role === 'teacher' ? profAvatar : undefined,
+    text: row.body,
+    time: row.created_at
+      ? new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '',
+  }
+}
+
+// "09:00 AM — 10:30 AM" -> "09:00:00" (24h, for the appointment_time column)
+function slotStartTo24h(slotTime) {
+  const start = slotTime.split('—')[0].trim()
+  const [time, period] = start.split(' ')
+  let [hh, mm] = time.split(':').map(Number)
+  if (period?.toUpperCase() === 'PM' && hh !== 12) hh += 12
+  if (period?.toUpperCase() === 'AM' && hh === 12) hh = 0
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`
+}
+
+function toIsoDate(year, month, day) {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 const SLOT_OPTIONS = [
@@ -38,7 +62,17 @@ function formatTime() {
 export default function Appointment() {
   const { id }   = useParams()
   const navigate = useNavigate()
-  const prof     = PROFESSORS[id] ?? PROFESSORS['aris-thorne']
+
+  const [teacher,   setTeacher]   = useState(null)
+  const [loading,   setLoading]   = useState(true)
+  const [loadError, setLoadError] = useState('')
+
+  // The most recent request this student has already sent this teacher, if
+  // any — real status (pending/accepted/declined) from the appointment
+  // table, not a locally-faked "Booked!" state.
+  const [existingRequest, setExistingRequest] = useState(null)
+  const [submitting,      setSubmitting]      = useState(false)
+  const [submitError,     setSubmitError]     = useState('')
 
   const today = new Date()
   const [year,         setYear]         = useState(today.getFullYear())
@@ -46,22 +80,55 @@ export default function Appointment() {
   const [selectedDate, setSelectedDate] = useState(today.getDate())
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [message,      setMessage]      = useState('')
-  const [messages,     setMessages]     = useState([
-    {
-      id: 1,
-      from: 'prof',
-      avatar: prof.avatar,
-      text: `Hello! I'm looking forward to our session. Please select a date and time slot that works best for you, and feel free to share any topics you'd like to discuss.`,
-      time: '10:42 AM',
-    },
-  ])
-  const [booked,       setBooked]       = useState(false)
-  const [isTyping,     setIsTyping]     = useState(false)
+  const [messages,     setMessages]     = useState([])
+  const [chatLoading,  setChatLoading]  = useState(true)
+  const [chatSending,  setChatSending]  = useState(false)
+  const [chatError,    setChatError]    = useState('')
   const messagesEndRef = useRef(null)
+
+  const profAvatarUrl = `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(id)}&backgroundColor=321817`
+
+  useEffect(() => {
+    setLoading(true)
+    setLoadError('')
+    fetchTeacher(id)
+      .then((row) => setTeacher(mapTeacherCard(row)))
+      .catch((err) => setLoadError(err.message || 'Professor not found.'))
+      .finally(() => setLoading(false))
+
+    const token = getToken()
+    if (token) {
+      fetchMyAppointmentsAsStudent(token)
+        .then((rows) => {
+          const mine = rows.find((r) => String(r.teacher_id) === String(id))
+          if (mine) setExistingRequest(mine)
+        })
+        .catch(() => {
+          // Non-fatal — the student can still send a new request.
+        })
+    }
+
+    // Real, persisted conversation with this teacher — not a scripted
+    // local-only chat. Both sides see the same thread.
+    setChatLoading(true)
+    setChatError('')
+    const studentId = getProfile()?.rollno
+    if (token && studentId) {
+      fetchThread(studentId, id, token)
+        .then((rows) => setMessages(rows.map((r) => mapThreadMessage(r, profAvatarUrl))))
+        .catch((err) => setChatError(err.message || 'Could not load this conversation.'))
+        .finally(() => setChatLoading(false))
+    } else {
+      setChatLoading(false)
+    }
+  }, [id])
+
+  const prof = teacher ?? { name: 'Professor', designation: '', avatar: '' }
+  const requestStatus = existingRequest?.status_label ?? null // 'pending' | 'accepted' | 'declined' | null
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isTyping])
+  }, [messages])
 
   // ── Calendar navigation ─────────────────────────
   const prevMonth = () => {
@@ -81,46 +148,79 @@ export default function Appointment() {
   const isPast       = (n) => new Date(year, month, n) < new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
   // ── Send message ────────────────────────────────
-  const sendMessage = () => {
-    if (!message.trim()) return
-    const userMsg = {
-      id:   Date.now(),
-      from: 'user',
-      text: message.trim(),
-      time: formatTime(),
-    }
-    setMessages(prev => [...prev, userMsg])
+  // Posts to the real thread so the teacher actually sees it (from their
+  // Dashboard's "Message" action) — no scripted local auto-reply anymore.
+  const sendMessage = async () => {
+    const body = message.trim()
+    if (!body || chatSending) return
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+    const studentId = getProfile()?.rollno
+    if (!studentId) return
+
     setMessage('')
-    setIsTyping(true)
-    setTimeout(() => {
-      setIsTyping(false)
-      const replies = [
-        "Thank you for reaching out! I'll review your message and get back to you shortly.",
-        "Great, that sounds good. I'll make sure to prepare relevant materials for our session.",
-        "Noted! Please also check the available time slots on the calendar to confirm a meeting.",
-        "Thanks for the context — this will help me prepare a more focused session for you.",
-      ]
-      setMessages(prev => [...prev, {
-        id:     Date.now() + 1,
-        from:   'prof',
-        avatar: prof.avatar,
-        text:   replies[Math.floor(Math.random() * replies.length)],
-        time:   formatTime(),
-      }])
-    }, 1500)
+    setChatSending(true)
+    setChatError('')
+    try {
+      const sent = await postMessage({ studentId, teacherId: Number(id), body }, token)
+      setMessages(prev => [...prev, mapThreadMessage(sent, profAvatarUrl)])
+    } catch (err) {
+      setChatError(err.message || 'Could not send that message. Please try again.')
+    } finally {
+      setChatSending(false)
+    }
   }
 
   // ── Confirm booking ─────────────────────────────
-  const confirmBooking = () => {
-    if (!selectedSlot) return
-    setBooked(true)
-    setMessages(prev => [...prev, {
-      id:     Date.now(),
-      from:   'prof',
-      avatar: prof.avatar,
-      text:   `Your session has been confirmed for ${MONTHS[month]} ${selectedDate}, ${year} at ${selectedSlot.time}. Looking forward to our ${selectedSlot.label}!`,
-      time:   formatTime(),
-    }])
+  // Sends a real request to the teacher instead of instantly marking the
+  // session "booked" — the teacher has to accept it from their Dashboard
+  // before it's an actual confirmed session.
+  const confirmBooking = async () => {
+    if (!selectedSlot || submitting) return
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+
+    setSubmitting(true)
+    setSubmitError('')
+    try {
+      const result = await createAppointment({
+        teacherId: Number(id),
+        date: toIsoDate(year, month, selectedDate),
+        time: slotStartTo24h(selectedSlot.time),
+      }, token)
+      setExistingRequest(result)
+      setMessages(prev => [...prev, {
+        id:     Date.now(),
+        from:   'system',
+        text:   `Your request for ${MONTHS[month]} ${selectedDate}, ${year} at ${selectedSlot.time} has been sent to ${prof.name}. You'll see the status here once they respond.`,
+        time:   formatTime(),
+      }])
+    } catch (err) {
+      setSubmitError(err.message || 'Could not send the request. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-on-surface-variant text-sm opacity-60">Loading professor…</p>
+      </div>
+    )
+  }
+
+  if (loadError || !teacher) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-on-surface-variant text-lg mb-4">{loadError || 'Professor not found.'}</p>
+          <button onClick={() => navigate('/home#explore')} className="btn-primary px-6 py-3">
+            Back to Explore
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -153,21 +253,21 @@ export default function Appointment() {
             <img src={prof.avatar} alt={prof.name} className="w-16 h-16 rounded-full object-cover shadow-lg" />
             <div>
               <p className="text-on-surface font-bold text-lg">{prof.name}</p>
-              <p className="text-primary text-sm font-medium">{prof.role}</p>
+              <p className="text-primary text-sm font-medium">{prof.designation}</p>
             </div>
           </div>
         </div>
 
-        {/* ── BOOKING CONFIRMED BANNER ───────────── */}
-        {booked && (
+        {/* ── REQUEST STATUS BANNER ────────────────── */}
+        {requestStatus === 'accepted' && (
           <div className="mb-8 p-5 rounded-2xl bg-tertiary-container/20 border border-tertiary/20 flex items-center gap-4">
             <span className="material-symbols-outlined text-tertiary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
               check_circle
             </span>
             <div>
-              <p className="font-headline font-bold text-on-surface">Booking Confirmed!</p>
+              <p className="font-headline font-bold text-on-surface">Session Confirmed!</p>
               <p className="text-sm text-on-surface-variant">
-                {MONTHS[month]} {selectedDate}, {year} · {selectedSlot?.time} · {selectedSlot?.label} with {prof.name}
+                {existingRequest.appointment_date} · {existingRequest.appointment_time} with {prof.name}
               </p>
             </div>
             <button
@@ -176,6 +276,36 @@ export default function Appointment() {
             >
               Browse More
             </button>
+          </div>
+        )}
+
+        {requestStatus === 'pending' && (
+          <div className="mb-8 p-5 rounded-2xl bg-surface-container-high border border-outline-variant/20 flex items-center gap-4">
+            <span className="material-symbols-outlined text-primary text-3xl">hourglass_top</span>
+            <div>
+              <p className="font-headline font-bold text-on-surface">Request Sent — Awaiting Response</p>
+              <p className="text-sm text-on-surface-variant">
+                {existingRequest.appointment_date} · {existingRequest.appointment_time}. {prof.name} hasn't responded yet.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {requestStatus === 'declined' && (
+          <div className="mb-8 p-5 rounded-2xl bg-error-container/10 border border-error/20 flex items-center gap-4">
+            <span className="material-symbols-outlined text-error text-3xl">cancel</span>
+            <div>
+              <p className="font-headline font-bold text-on-surface">Previous Request Declined</p>
+              <p className="text-sm text-on-surface-variant">
+                {prof.name} declined your request for {existingRequest.appointment_date} · {existingRequest.appointment_time}. You can send a new request below.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {submitError && (
+          <div className="mb-8 p-4 rounded-2xl bg-error-container/10 border border-error/20">
+            <p className="text-sm text-error">{submitError}</p>
           </div>
         )}
 
@@ -290,7 +420,7 @@ export default function Appointment() {
                 <img src={prof.avatar} className="w-9 h-9 rounded-full" alt="" />
                 <div>
                   <p className="text-sm font-bold text-on-surface">{prof.name}</p>
-                  <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider">{prof.role}</p>
+                  <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider">{prof.designation}</p>
                 </div>
                 <div className="ml-auto flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-green-500" />
@@ -300,8 +430,25 @@ export default function Appointment() {
 
               {/* Messages */}
               <div className="flex-1 p-6 space-y-5 overflow-y-auto">
-                {messages.map((msg) =>
-                  msg.from === 'prof' ? (
+                {chatLoading && (
+                  <p className="text-sm text-on-surface-variant opacity-60 text-center py-8">Loading conversation…</p>
+                )}
+                {!chatLoading && messages.length === 0 && (
+                  <p className="text-sm text-on-surface-variant opacity-50 text-center py-8">
+                    No messages yet. Say hello to {prof.name}.
+                  </p>
+                )}
+                {messages.map((msg) => {
+                  if (msg.from === 'system') {
+                    return (
+                      <div key={msg.id} className="flex justify-center">
+                        <div className="bg-surface-container-high/70 border border-outline-variant/10 px-4 py-2.5 rounded-2xl max-w-sm text-center">
+                          <p className="text-xs text-on-surface-variant leading-relaxed">{msg.text}</p>
+                        </div>
+                      </div>
+                    )
+                  }
+                  return msg.from === 'prof' ? (
                     <div key={msg.id} className="flex items-start gap-3">
                       <img src={msg.avatar} className="w-8 h-8 rounded-full shadow-md shrink-0 mt-1" alt="" />
                       <div className="bg-surface-container-low p-4 rounded-3xl rounded-tl-none max-w-sm shadow-sm">
@@ -320,27 +467,14 @@ export default function Appointment() {
                       </div>
                     </div>
                   )
-                )}
+                })}
 
-                {/* Typing indicator */}
-                {isTyping && (
-                  <div className="flex items-start gap-3">
-                    <img src={prof.avatar} className="w-8 h-8 rounded-full shadow-md shrink-0 mt-1" alt="" />
-                    <div className="bg-surface-container-low p-4 rounded-3xl rounded-tl-none shadow-sm">
-                      <div className="flex items-center gap-1.5 h-4">
-                        {[0, 1, 2].map((i) => (
-                          <div
-                            key={i}
-                            className="w-2 h-2 rounded-full bg-on-surface-variant/40"
-                            style={{ animation: `bounce 1.2s ${i * 0.2}s infinite` }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
                 <div ref={messagesEndRef} />
               </div>
+
+              {chatError && (
+                <p className="text-xs text-error px-6 pb-2">{chatError}</p>
+              )}
 
               {/* Input */}
               <div className="p-5 bg-surface-container-lowest/50 border-t border-outline-variant/10">
@@ -362,7 +496,7 @@ export default function Appointment() {
                     </button>
                     <button
                       onClick={sendMessage}
-                      disabled={!message.trim()}
+                      disabled={!message.trim() || chatSending}
                       className="p-2.5 bg-primary rounded-xl text-on-primary hover:brightness-110 active:scale-95 transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <span className="material-symbols-outlined text-lg">send</span>
@@ -391,18 +525,25 @@ export default function Appointment() {
 
               <button
                 onClick={confirmBooking}
-                disabled={!selectedSlot || booked}
+                disabled={!selectedSlot || submitting || requestStatus === 'pending' || requestStatus === 'accepted'}
                 className={`flex items-center justify-center gap-3 h-16 rounded-2xl font-headline font-extrabold tracking-tight transition-all ${
-                  selectedSlot && !booked
+                  selectedSlot && !submitting && requestStatus !== 'pending' && requestStatus !== 'accepted'
                     ? 'btn-primary'
                     : 'bg-surface-container border border-outline-variant/10 text-on-surface-variant/30 cursor-not-allowed'
                 }`}
               >
-                {booked ? (
+                {requestStatus === 'accepted' ? (
                   <>
                     <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                    Booked!
+                    Confirmed
                   </>
+                ) : requestStatus === 'pending' ? (
+                  <>
+                    <span className="material-symbols-outlined">hourglass_top</span>
+                    Awaiting Response
+                  </>
+                ) : submitting ? (
+                  <>Sending…</>
                 ) : (
                   <>
                     Confirm Booking

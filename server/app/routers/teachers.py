@@ -37,3 +37,26 @@ def list_teachers():
         .data
     )
     return rows
+
+
+# GET /api/teachers/{teacher_id}
+# Single teacher lookup — backs the "Full Profile" / booking pages reached
+# from the Explore grid. Public, same non-sensitive column set as the list.
+@router.get("/{teacher_id}", response_model=TeacherPublic)
+def get_teacher(teacher_id: int):
+    if supabase is None:
+        raise HTTPException(
+            status_code=503,
+            detail=SUPABASE_ERROR or "Database not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY on the server.",
+        )
+
+    rows = (
+        supabase.table("teacher")
+        .select("teacher_id,name,department,designation,room_number,h_index")
+        .eq("teacher_id", teacher_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Teacher not found.")
+    return rows[0]

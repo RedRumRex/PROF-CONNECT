@@ -199,7 +199,14 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex items-center gap-6 shrink-0">
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={() => navigate('/appointments')}
+                className="px-5 py-2.5 text-sm rounded-xl border border-outline-variant/20 text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors flex items-center gap-2 shrink-0"
+              >
+                <span className="material-symbols-outlined text-lg">calendar_month</span>
+                Appointments
+              </button>
               <button
                 onClick={() => navigate('/profile')}
                 className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2 shrink-0"

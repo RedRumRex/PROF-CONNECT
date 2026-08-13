@@ -4,8 +4,12 @@ import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
 import { getMe } from '../api/auth'
+import { fetchAppointmentsForTeacher, respondToAppointment } from '../api/appointments'
+import { fetchThread, sendMessage as postMessage } from '../api/messages'
+import { setMyAvailability } from '../api/availability'
 import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
 import { mapTeacherProfile } from '../lib/profile'
+import useLiveStatus from '../hooks/useLiveStatus'
 
 const NOTIFICATIONS = [
   { id: 1, text: 'Assignment #4 deadline in 3 days',        icon: 'warning',       read: false },
@@ -13,9 +17,22 @@ const NOTIFICATIONS = [
   { id: 3, text: 'Thesis review confirmed for Wednesday',   icon: 'event_available', read: true },
 ]
 
-// Empty for now — real appointment requests come from the `appointment`
-// table once that flow is wired up.
-const INITIAL_APPOINTMENT_REQUESTS = []
+// Maps a row from GET /api/appointments/teacher (appointment + joined
+// student name/branch/year) into the shape this page renders.
+function mapAppointmentRequest(row) {
+  return {
+    id: row.appointment_id,
+    studentId: row.student_id,
+    name: row.student_name || 'Student',
+    dept: row.student_branch
+      ? `${row.student_branch}${row.student_year ? ` · Year ${row.student_year}` : ''}`
+      : '—',
+    date: row.appointment_date,
+    time: row.appointment_time,
+    status: row.status_label, // 'pending' | 'accepted' | 'declined'
+    avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(row.student_id))}&backgroundColor=321817`,
+  }
+}
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -38,27 +55,110 @@ export default function Dashboard() {
       })
   }, [navigate])
 
-  const [requests,          setRequests]          = useState(INITIAL_APPOINTMENT_REQUESTS)
+  const [requests,        setRequests]        = useState([])
+  const [requestsError,   setRequestsError]   = useState('')
+  const [respondingId,    setRespondingId]    = useState(null)
   const [showNotifications, setShowNotifications] = useState(false)
   const [notifications,     setNotifications]     = useState(NOTIFICATIONS)
-  const [messageOpen,       setMessageOpen]       = useState(false)
-  const [messageText,       setMessageText]       = useState('')
-  const [messageSent,       setMessageSent]       = useState(false)
+
+  // ── "Available in Room" toggle ──────────────────────────────────────
+  // Professor-only: pushes this teacher's real room availability over the
+  // same live-status channel every Explore card / Profile page listens to
+  // (see hooks/useLiveStatus.js). statusMap updates itself once the socket
+  // broadcast comes back, so isAvailable below reflects the change without
+  // any local optimistic state.
+  const { statusMap } = useLiveStatus()
+  const [togglingAvailability, setTogglingAvailability] = useState(false)
+  const [availabilityError,    setAvailabilityError]    = useState('')
+  const isAvailable = statusMap[teacher.teacherId]?.status === 'available'
+
+  const toggleAvailability = async () => {
+    const token = getToken()
+    if (!token || togglingAvailability) return
+    setTogglingAvailability(true)
+    setAvailabilityError('')
+    try {
+      await setMyAvailability(!isAvailable, token)
+    } catch (err) {
+      setAvailabilityError(err.message || 'Could not update your availability.')
+    } finally {
+      setTogglingAvailability(false)
+    }
+  }
+
+  // ── Per-student chat (opened from the "Message" action on a request) ──
+  const [chatWith,     setChatWith]     = useState(null) // the request row, or null when closed
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatLoading,  setChatLoading]  = useState(false)
+  const [chatError,    setChatError]    = useState('')
+  const [chatInput,    setChatInput]    = useState('')
+  const [chatSending,  setChatSending]  = useState(false)
+
+  useEffect(() => {
+    const token = getToken()
+    if (!token) return
+    fetchAppointmentsForTeacher(token)
+      .then((rows) => setRequests(rows.map(mapAppointmentRequest)))
+      .catch((err) => setRequestsError(err.message || 'Could not load appointment requests.'))
+  }, [])
 
   const unreadCount = notifications.filter(n => !n.read).length
 
   const markAllRead = () =>
     setNotifications(prev => prev.map(n => ({ ...n, read: true })))
 
-  const sendMessage = () => {
-    if (!messageText.trim()) return
-    setMessageSent(true)
-    setMessageText('')
-    setTimeout(() => { setMessageSent(false); setMessageOpen(false) }, 2500)
+  const openChat = (request) => {
+    const token = getToken()
+    if (!token) return
+    setChatWith(request)
+    setChatMessages([])
+    setChatError('')
+    setChatLoading(true)
+    const teacherId = getProfile()?.teacher_id
+    fetchThread(request.studentId, teacherId, token)
+      .then((rows) => setChatMessages(rows))
+      .catch((err) => setChatError(err.message || 'Could not load this conversation.'))
+      .finally(() => setChatLoading(false))
   }
 
-  const respondToRequest = (id, status) => {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r))
+  const closeChat = () => {
+    setChatWith(null)
+    setChatMessages([])
+    setChatInput('')
+    setChatError('')
+  }
+
+  const sendChatMessage = async () => {
+    const body = chatInput.trim()
+    if (!body || !chatWith || chatSending) return
+    const token = getToken()
+    if (!token) return
+    setChatSending(true)
+    try {
+      const teacherId = getProfile()?.teacher_id
+      const sent = await postMessage({ studentId: chatWith.studentId, teacherId, body }, token)
+      setChatMessages(prev => [...prev, sent])
+      setChatInput('')
+    } catch (err) {
+      setChatError(err.message || 'Could not send that message. Please try again.')
+    } finally {
+      setChatSending(false)
+    }
+  }
+
+  const respondToRequest = async (id, accept) => {
+    const token = getToken()
+    if (!token || respondingId) return
+    setRespondingId(id)
+    setRequestsError('')
+    try {
+      await respondToAppointment(id, accept, token)
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: accept ? 'accepted' : 'declined' } : r))
+    } catch (err) {
+      setRequestsError(err.message || 'Could not update this request. Please try again.')
+    } finally {
+      setRespondingId(null)
+    }
   }
 
   const pendingCount = requests.filter(r => r.status === 'pending').length
@@ -86,13 +186,34 @@ export default function Dashboard() {
             <p className="text-on-surface-variant text-sm opacity-60">{teacher.email}</p>
           </div>
 
-          <div className="flex gap-3 w-full md:w-auto flex-wrap">
+          <div className="flex gap-3 w-full md:w-auto flex-wrap items-start">
+            <div className="flex flex-col gap-1.5">
+              <button
+                onClick={toggleAvailability}
+                disabled={togglingAvailability}
+                title="Toggle whether students see you as available in your room right now"
+                className={`px-5 py-4 rounded-xl border transition-colors flex items-center gap-2.5 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
+                  isAvailable
+                    ? 'bg-tertiary/10 border-tertiary/30 text-tertiary hover:bg-tertiary/20'
+                    : 'border-outline-variant/30 text-on-surface hover:bg-surface-container-high'
+                }`}
+              >
+                <span className={`w-2.5 h-2.5 rounded-full ${isAvailable ? 'bg-tertiary animate-pulse' : 'bg-rose-600'}`} />
+                <span className="text-sm font-bold">
+                  {isAvailable ? 'Available in Room' : 'Not in Room'}
+                </span>
+              </button>
+              {availabilityError && (
+                <p className="text-[11px] text-error px-1">{availabilityError}</p>
+              )}
+            </div>
+
             <button
-              onClick={() => setMessageOpen(true)}
-              className="flex-1 md:flex-none px-6 py-4 rounded-xl border border-outline-variant/30 text-on-surface font-bold text-sm hover:bg-surface-container-high transition-colors flex items-center justify-center gap-2 active:scale-95"
+              onClick={() => navigate('/appointments')}
+              className="px-4 py-4 rounded-xl border border-outline-variant/30 text-on-surface hover:bg-surface-container-high transition-colors flex items-center gap-2 active:scale-95"
             >
-              <span className="material-symbols-outlined text-lg">mail</span>
-              Leave a Message
+              <span className="material-symbols-outlined text-lg">calendar_month</span>
+              <span className="text-sm font-bold hidden sm:inline">Appointments</span>
             </button>
 
             {/* Notification bell */}
@@ -131,51 +252,6 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* ── MESSAGE MODAL ────────────────────────── */}
-        {messageOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-            <div className="glass-panel rounded-2xl p-8 w-full max-w-md border border-outline-variant/20 shadow-2xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-headline font-bold text-lg">Leave a Message</h3>
-                <button onClick={() => setMessageOpen(false)} className="text-on-surface-variant hover:text-primary transition-colors">
-                  <span className="material-symbols-outlined">close</span>
-                </button>
-              </div>
-              {messageSent ? (
-                <div className="text-center py-6">
-                  <span className="material-symbols-outlined text-5xl text-tertiary mb-3 block" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    check_circle
-                  </span>
-                  <p className="font-headline font-bold text-on-surface">Message Sent!</p>
-                  <p className="text-sm text-on-surface-variant mt-1">Prof. Sharma will respond within 24 hours.</p>
-                </div>
-              ) : (
-                <>
-                  <textarea
-                    rows={5}
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Write your message to Prof. Sharma..."
-                    className="input-base w-full p-4 text-sm resize-none mb-4"
-                  />
-                  <div className="flex gap-3">
-                    <button onClick={() => setMessageOpen(false)} className="flex-1 py-3 rounded-xl border border-outline-variant/30 text-on-surface-variant font-bold text-sm hover:bg-surface-container-high transition-colors">
-                      Cancel
-                    </button>
-                    <button
-                      onClick={sendMessage}
-                      disabled={!messageText.trim()}
-                      className="flex-1 btn-primary py-3 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Send Message
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* ── APPOINTMENT REQUESTS ─────────────────── */}
         <section className="glass-panel rounded-2xl p-8 shadow-2xl relative overflow-hidden">
           <div className="flex items-center justify-between mb-6">
@@ -187,6 +263,10 @@ export default function Dashboard() {
               {pendingCount} Pending
             </span>
           </div>
+
+          {requestsError && (
+            <p className="text-xs text-error mb-4">{requestsError}</p>
+          )}
 
           {requests.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
@@ -205,42 +285,124 @@ export default function Dashboard() {
                   <p className="text-sm font-bold text-on-surface">{r.name}</p>
                   <p className="text-xs text-on-surface-variant">{r.dept}</p>
                   <p className="text-xs text-on-surface-variant opacity-70 mt-0.5">
-                    {r.reason} · {r.date}, {r.time}
+                    {r.date} · {r.time}
                   </p>
                 </div>
 
-                {r.status === 'pending' ? (
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      onClick={() => respondToRequest(r.id, 'accepted')}
-                      className="px-3 py-2 rounded-xl bg-tertiary/10 border border-tertiary/20 text-tertiary text-xs font-bold hover:bg-tertiary/20 transition-colors"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      onClick={() => respondToRequest(r.id, 'declined')}
-                      className="px-3 py-2 rounded-xl border border-outline-variant/20 text-on-surface-variant text-xs font-bold hover:bg-surface-container-high transition-colors"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                ) : (
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full shrink-0 self-start sm:self-center ${
-                      r.status === 'accepted'
-                        ? 'bg-tertiary/10 text-tertiary'
-                        : 'bg-error/10 text-error'
-                    }`}
+                <div className="flex gap-2 shrink-0 items-center">
+                  <button
+                    onClick={() => openChat(r)}
+                    className="px-3 py-2 rounded-xl border border-outline-variant/20 text-on-surface-variant text-xs font-bold hover:bg-surface-container-high hover:text-primary transition-colors flex items-center gap-1.5"
                   >
-                    {r.status}
-                  </span>
-                )}
+                    <span className="material-symbols-outlined text-sm">mail</span>
+                    Message
+                  </button>
+
+                  {r.status === 'pending' ? (
+                    <>
+                      <button
+                        onClick={() => respondToRequest(r.id, true)}
+                        disabled={respondingId === r.id}
+                        className="px-3 py-2 rounded-xl bg-tertiary/10 border border-tertiary/20 text-tertiary text-xs font-bold hover:bg-tertiary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => respondToRequest(r.id, false)}
+                        disabled={respondingId === r.id}
+                        className="px-3 py-2 rounded-xl border border-outline-variant/20 text-on-surface-variant text-xs font-bold hover:bg-surface-container-high transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Decline
+                      </button>
+                    </>
+                  ) : (
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full self-start sm:self-center ${
+                        r.status === 'accepted'
+                          ? 'bg-tertiary/10 text-tertiary'
+                          : 'bg-error/10 text-error'
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
           )}
         </section>
       </main>
+
+      {/* ── CHAT MODAL ────────────────────────────── */}
+      {chatWith && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="glass-panel rounded-2xl w-full max-w-lg border border-outline-variant/20 shadow-2xl flex flex-col overflow-hidden" style={{ height: '600px', maxHeight: '85vh' }}>
+
+            {/* Header */}
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-outline-variant/10 shrink-0">
+              <img src={chatWith.avatar} alt={chatWith.name} className="w-10 h-10 rounded-full" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-on-surface truncate">{chatWith.name}</p>
+                <p className="text-[11px] text-on-surface-variant opacity-60 truncate">{chatWith.dept}</p>
+              </div>
+              <button onClick={closeChat} className="text-on-surface-variant hover:text-primary transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 p-5 space-y-3 overflow-y-auto">
+              {chatLoading ? (
+                <p className="text-sm text-on-surface-variant opacity-60 text-center py-8">Loading conversation…</p>
+              ) : chatMessages.length === 0 ? (
+                <p className="text-sm text-on-surface-variant opacity-50 text-center py-8">
+                  No messages yet. Say hello to {chatWith.name}.
+                </p>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isMe = msg.sender_role === 'teacher'
+                  return (
+                    <div key={msg.message_id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                        isMe
+                          ? 'bg-primary text-on-primary rounded-br-sm'
+                          : 'bg-surface-container-high text-on-surface rounded-bl-sm border border-outline-variant/10'
+                      }`}>
+                        {msg.body}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {chatError && (
+              <p className="text-xs text-error px-5 pb-2">{chatError}</p>
+            )}
+
+            {/* Input */}
+            <div className="p-4 border-t border-outline-variant/10 shrink-0">
+              <div className="flex items-center gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
+                  placeholder={`Message ${chatWith.name}...`}
+                  className="input-base flex-1 text-sm"
+                />
+                <button
+                  onClick={sendChatMessage}
+                  disabled={!chatInput.trim() || chatSending}
+                  className="btn-primary p-3 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  <span className="material-symbols-outlined text-lg">send</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BottomNav />
     </div>

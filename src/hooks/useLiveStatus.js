@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchAllStatuses, subscribeToStatusUpdates } from '../api/professorStatus'
+import { fetchAllAvailability } from '../api/availability'
+import { subscribeToStatusUpdates } from '../api/professorStatus'
 
-// Returns live availability data pushed from professors' door-mounted
-// Raspberry Pi units, merged over the static seed data used elsewhere in
-// the app. If the API is unreachable (e.g. local dev without the server
-// running), statusMap stays empty and callers should fall back to their
-// own default status.
+// Returns live "available in room" data, keyed by real teacher_id — sourced
+// from each professor's own Dashboard toggle (see api/availability.js) and
+// pushed to every connected tab over the same status:update socket channel
+// the legacy door-unit bridge (professorStatus.js) used. If the API is
+// unreachable (e.g. local dev without the server running), statusMap stays
+// empty and callers should fall back to their own default status.
 export default function useLiveStatus() {
   const [statusMap, setStatusMap] = useState({})
   const [connected, setConnected] = useState(false)
@@ -14,7 +16,7 @@ export default function useLiveStatus() {
   useEffect(() => {
     mounted.current = true
 
-    fetchAllStatuses()
+    fetchAllAvailability()
       .then((map) => {
         if (!mounted.current) return
         setStatusMap((prev) => ({ ...map, ...prev }))

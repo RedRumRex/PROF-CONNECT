@@ -4,6 +4,7 @@ import SignUp         from './pages/SignUp'
 import Home           from './pages/Home'
 import Dashboard      from './pages/Dashboard'
 import Appointment    from './pages/Appointment'
+import Appointments   from './pages/Appointments'
 import StudentProfile from './pages/StudentProfile'
 import Profile        from './pages/Profile'
 import Messages       from './pages/Messages'
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/profile"           element={<StudentProfile />} />
         <Route path="/dashboard"         element={<Dashboard />} />
         <Route path="/appointment/:id"   element={<Appointment />} />
+        <Route path="/appointments"      element={<Appointments />} />
         <Route path="/messages"          element={<Messages />} />
         <Route path="/settings"          element={<Settings />} />
       </Routes>

@@ -1,10 +1,12 @@
 """Password hashing, JWT issuance, and password-strength validation shared
-by the auth router."""
+by the auth/appointments routers."""
 import re
 import datetime
+from typing import Optional
 
 import bcrypt
 import jwt
+from fastapi import HTTPException
 
 from .config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES
 
@@ -35,6 +37,23 @@ def decode_access_token(token: str) -> dict:
     """Raises jwt.PyJWTError (ExpiredSignatureError, InvalidTokenError, ...)
     on failure — callers should catch and turn into a 401."""
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+
+def require_claims(authorization: Optional[str]) -> dict:
+    """Parses + validates the `Authorization: Bearer <token>` header. Raises
+    401 on anything wrong (missing header, expired token, bad signature).
+    Shared by every router that needs to know who's making the request
+    (auth's /me, appointments' create/list/respond)."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header.")
+
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        return decode_access_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid session token. Please log in again.")
 
 
 # Minimum 8 chars, at least one lowercase, one uppercase, one digit.

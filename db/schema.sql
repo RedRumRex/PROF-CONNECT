@@ -71,3 +71,24 @@ create table public.teacher_auth (
   created_at     timestamptz not null default now(),
   last_login_at  timestamptz
 );
+
+-- ── message ────────────────────────────────────────────────
+-- Added later — added on its own with `if not exists` so it's
+-- safe to run by itself against the tables above, which already
+-- exist in your live project (re-running the whole file from the
+-- top would fail on `create table public.teacher` etc. since
+-- those aren't idempotent). Just select and run this block.
+--
+-- One thread per (student, teacher) pair — backs both the
+-- student's chat on the booking page and the teacher's "Message"
+-- button on each appointment request in the Dashboard.
+create table if not exists public.message (
+  message_id   bigint generated always as identity primary key,
+  student_id   bigint not null references public.student(rollno) on delete cascade,
+  teacher_id   bigint not null references public.teacher(teacher_id) on delete cascade,
+  sender_role  text not null check (sender_role in ('student', 'teacher')),
+  body         text not null,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists idx_message_thread on public.message(student_id, teacher_id, created_at);

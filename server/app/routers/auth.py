@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-import jwt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 
@@ -10,8 +9,8 @@ from ..auth_utils import (
     hash_password,
     verify_password,
     create_access_token,
-    decode_access_token,
     validate_password_strength,
+    require_claims,
 )
 
 router = APIRouter(tags=["auth"])
@@ -64,21 +63,6 @@ def _require_db():
             status_code=503,
             detail=SUPABASE_ERROR or "Database not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY on the server.",
         )
-
-
-def _require_claims(authorization: Optional[str]) -> dict:
-    """Parses + validates the `Authorization: Bearer <token>` header. Raises
-    401 on anything wrong (missing header, expired token, bad signature)."""
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header.")
-
-    token = authorization.split(" ", 1)[1].strip()
-    try:
-        return decode_access_token(token)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid session token. Please log in again.")
 
 
 # ── Signup ───────────────────────────────────────────────────────────────
@@ -197,7 +181,7 @@ def login(payload: LoginRequest):
 @router.get("/me", response_model=MeResponse)
 def me(authorization: Optional[str] = Header(default=None)):
     _require_db()
-    claims = _require_claims(authorization)
+    claims = require_claims(authorization)
     role = claims.get("role")
     subject = claims.get("sub")
 
