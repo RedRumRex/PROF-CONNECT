@@ -92,3 +92,28 @@ create table if not exists public.message (
 );
 
 create index if not exists idx_message_thread on public.message(student_id, teacher_id, created_at);
+
+-- ── notification ───────────────────────────────────────────
+-- Added later — same deal as `message` above: `if not exists`, safe
+-- to run standalone against your existing live tables. Backs the
+-- notification bell in the navbar — a row is created whenever a
+-- student books a session, a teacher accepts/declines a request, or
+-- either side sends a message.
+--
+-- recipient_role + recipient_id together identify who it's for (a
+-- student's rollno or a teacher's teacher_id). There's no single FK
+-- here since which table recipient_id points at depends on
+-- recipient_role.
+create table if not exists public.notification (
+  notification_id bigint generated always as identity primary key,
+  recipient_role   text not null check (recipient_role in ('student', 'teacher')),
+  recipient_id     bigint not null,
+  type             text not null,
+  title            text not null,
+  body             text,
+  link             text,
+  read             boolean not null default false,
+  created_at       timestamptz not null default now()
+);
+
+create index if not exists idx_notification_recipient on public.notification(recipient_role, recipient_id, created_at desc);

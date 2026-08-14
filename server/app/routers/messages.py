@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from ..db import supabase, SUPABASE_ERROR
 from ..auth_utils import require_claims
+from ..notifications import notify
 
 router = APIRouter(tags=["messages"])
 
@@ -90,7 +91,7 @@ def get_thread(
 
 
 @router.post("", status_code=201)
-def send_message(payload: MessageCreate, authorization: Optional[str] = Header(default=None)):
+async def send_message(payload: MessageCreate, authorization: Optional[str] = Header(default=None)):
     _require_db()
     if not payload.body.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
@@ -108,4 +109,38 @@ def send_message(payload: MessageCreate, authorization: Optional[str] = Header(d
         lambda: supabase.table("message").insert(row).execute().data,
         "send that message",
     )
-    return inserted[0] if inserted else row
+    result = inserted[0] if inserted else row
+
+    # Best-effort — a notification hiccup should never fail sending the
+    # message itself.
+    try:
+        preview = payload.body.strip()
+        if len(preview) > 120:
+            preview = preview[:117] + "..."
+
+        if sender_role == "student":
+            sender_rows = supabase.table("student").select("name").eq("rollno", payload.student_id).execute().data
+            sender_name = sender_rows[0]["name"] if sender_rows else "A student"
+            await notify(
+                recipient_role="teacher",
+                recipient_id=payload.teacher_id,
+                type="message",
+                title=f"New message from {sender_name}",
+                body=preview,
+                link="/dashboard",
+            )
+        else:
+            sender_rows = supabase.table("teacher").select("name").eq("teacher_id", payload.teacher_id).execute().data
+            sender_name = sender_rows[0]["name"] if sender_rows else "A professor"
+            await notify(
+                recipient_role="student",
+                recipient_id=payload.student_id,
+                type="message",
+                title=f"New message from {sender_name}",
+                body=preview,
+                link=f"/appointment/{payload.teacher_id}",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    return result

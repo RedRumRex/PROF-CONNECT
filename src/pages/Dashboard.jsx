@@ -11,12 +11,6 @@ import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
 import { mapTeacherProfile } from '../lib/profile'
 import useLiveStatus from '../hooks/useLiveStatus'
 
-const NOTIFICATIONS = [
-  { id: 1, text: 'Assignment #4 deadline in 3 days',        icon: 'warning',       read: false },
-  { id: 2, text: 'New resource uploaded: Quantum Pack v2',  icon: 'folder_zip',    read: false },
-  { id: 3, text: 'Thesis review confirmed for Wednesday',   icon: 'event_available', read: true },
-]
-
 // Maps a row from GET /api/appointments/teacher (appointment + joined
 // student name/branch/year) into the shape this page renders.
 function mapAppointmentRequest(row) {
@@ -58,8 +52,6 @@ export default function Dashboard() {
   const [requests,        setRequests]        = useState([])
   const [requestsError,   setRequestsError]   = useState('')
   const [respondingId,    setRespondingId]    = useState(null)
-  const [showNotifications, setShowNotifications] = useState(false)
-  const [notifications,     setNotifications]     = useState(NOTIFICATIONS)
 
   // ── "Available in Room" toggle ──────────────────────────────────────
   // Professor-only: pushes this teacher's real room availability over the
@@ -101,11 +93,6 @@ export default function Dashboard() {
       .then((rows) => setRequests(rows.map(mapAppointmentRequest)))
       .catch((err) => setRequestsError(err.message || 'Could not load appointment requests.'))
   }, [])
-
-  const unreadCount = notifications.filter(n => !n.read).length
-
-  const markAllRead = () =>
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
 
   const openChat = (request) => {
     const token = getToken()
@@ -215,40 +202,6 @@ export default function Dashboard() {
               <span className="material-symbols-outlined text-lg">calendar_month</span>
               <span className="text-sm font-bold hidden sm:inline">Appointments</span>
             </button>
-
-            {/* Notification bell */}
-            <div className="relative">
-              <button
-                onClick={() => setShowNotifications(v => !v)}
-                className="relative px-4 py-4 rounded-xl border border-outline-variant/30 text-on-surface hover:bg-surface-container-high transition-colors flex items-center gap-2 active:scale-95"
-              >
-                <span className="material-symbols-outlined text-lg">notifications</span>
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-on-primary text-[10px] font-black flex items-center justify-center">
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Dropdown */}
-              {showNotifications && (
-                <div className="absolute right-0 top-full mt-2 w-80 bg-surface-container-high border border-outline-variant/20 rounded-2xl shadow-2xl z-30 overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-3 border-b border-outline-variant/10">
-                    <h4 className="font-headline font-bold text-sm">Notifications</h4>
-                    <button onClick={markAllRead} className="text-[10px] text-primary font-bold uppercase tracking-wider hover:opacity-80">
-                      Mark all read
-                    </button>
-                  </div>
-                  {notifications.map(n => (
-                    <div key={n.id} className={`flex items-start gap-3 px-5 py-4 border-b border-outline-variant/5 transition-colors ${n.read ? 'opacity-50' : 'hover:bg-surface-container-highest'}`}>
-                      <span className="material-symbols-outlined text-primary text-lg mt-0.5">{n.icon}</span>
-                      <p className="text-sm text-on-surface flex-1">{n.text}</p>
-                      {!n.read && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </section>
 

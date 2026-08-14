@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from ..db import supabase, SUPABASE_ERROR
 from ..auth_utils import require_claims
+from ..notifications import notify
 
 router = APIRouter(tags=["appointments"])
 
@@ -44,7 +45,7 @@ class AppointmentRespond(BaseModel):
 # on this before it's a real booking.
 
 @router.post("", status_code=201)
-def create_appointment(payload: AppointmentCreate, authorization: Optional[str] = Header(default=None)):
+async def create_appointment(payload: AppointmentCreate, authorization: Optional[str] = Header(default=None)):
     _require_db()
     claims = require_claims(authorization)
     if claims.get("role") != "student":
@@ -67,6 +68,22 @@ def create_appointment(payload: AppointmentCreate, authorization: Optional[str] 
     inserted = supabase.table("appointment").insert(row).execute().data
     result = inserted[0] if inserted else row
     result["status_label"] = _status_label(result.get("status"))
+
+    # Best-effort — a notification hiccup should never fail the booking.
+    try:
+        student_rows = supabase.table("student").select("name").eq("rollno", student_id).execute().data
+        student_name = student_rows[0]["name"] if student_rows else "A student"
+        await notify(
+            recipient_role="teacher",
+            recipient_id=payload.teacher_id,
+            type="appointment_request",
+            title="New appointment request",
+            body=f"{student_name} requested a session on {payload.appointment_date} at {payload.appointment_time}.",
+            link="/appointments",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return result
 
 
@@ -164,7 +181,7 @@ def list_requests_for_teacher(authorization: Optional[str] = Header(default=None
 # ── Respond (teacher) ────────────────────────────────────────────────────
 
 @router.patch("/{appointment_id}/respond")
-def respond_to_appointment(
+async def respond_to_appointment(
     appointment_id: int,
     payload: AppointmentRespond,
     authorization: Optional[str] = Header(default=None),
@@ -190,4 +207,21 @@ def respond_to_appointment(
     )
     result = updated[0] if updated else rows[0]
     result["status_label"] = _status_label(result.get("status"))
+
+    # Best-effort — a notification hiccup should never fail the response.
+    try:
+        teacher_rows = supabase.table("teacher").select("name").eq("teacher_id", teacher_id).execute().data
+        teacher_name = teacher_rows[0]["name"] if teacher_rows else "The professor"
+        action = "accepted" if payload.status else "declined"
+        await notify(
+            recipient_role="student",
+            recipient_id=result["student_id"],
+            type=f"appointment_{action}",
+            title=f"Appointment {action}",
+            body=f"{teacher_name} {action} your request for {result.get('appointment_date')} at {result.get('appointment_time')}.",
+            link="/appointments",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return result
