@@ -7,3 +7,4 @@ pydantic[email]>=2.7
 supabase>=2.6
 bcrypt>=4.1
 pyjwt>=2.9
+python-multipart>=0.0.9

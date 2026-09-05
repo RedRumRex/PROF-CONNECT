@@ -12,13 +12,22 @@ function ordinalYear(year) {
   return `${n}${suffix} Year`
 }
 
+// A row's avatar_url (set via "Add/Change Profile Photo" — see
+// api/profile.js and server/app/routers/profile_photo.py) wins when
+// present; otherwise falls back to a generated placeholder so every user
+// still has *some* avatar before uploading a real photo.
+function avatarFor(row, seed, fallbackBg) {
+  if (row?.avatar_url) return row.avatar_url
+  return `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(seed || 'ProfConnect')}&backgroundColor=${fallbackBg}`
+}
+
 export function mapStudentProfile(row) {
   if (!row) {
     return {
       name: 'Student', rollNo: '—', branch: '—', year: '—',
       email: '—', phone: '—',
       cgpa: '—', dob: '—', hostel: '—', about: '', skills: [],
-      avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=ProfConnect&backgroundColor=321817',
+      avatar: avatarFor(null, 'ProfConnect', '321817'),
     }
   }
   const rollno = row.rollno ?? ''
@@ -35,7 +44,7 @@ export function mapStudentProfile(row) {
     hostel: '—',
     about: '',
     skills: [],
-    avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(rollno) || 'ProfConnect')}&backgroundColor=321817`,
+    avatar: avatarFor(row, String(rollno), '321817'),
   }
 }
 
@@ -52,7 +61,7 @@ export function mapTeacherCard(row) {
     designation: row.designation || 'Professor',
     roomNumber: row.room_number || '—',
     hIndex: row.h_index != null ? row.h_index : '—',
-    avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(teacherId) || 'ProfConnect')}&backgroundColor=321817`,
+    avatar: avatarFor(row, String(teacherId), '321817'),
   }
 }
 
@@ -61,7 +70,7 @@ export function mapTeacherProfile(row) {
     return {
       name: 'Professor', teacherId: '—', department: '—', designation: '—',
       roomNumber: '—', hIndex: '—', email: '—',
-      avatar: 'https://api.dicebear.com/9.x/notionists/svg?seed=ProfConnect&backgroundColor=0a1628',
+      avatar: avatarFor(null, 'ProfConnect', '0a1628'),
     }
   }
   const teacherId = row.teacher_id ?? ''
@@ -73,6 +82,6 @@ export function mapTeacherProfile(row) {
     roomNumber: row.room_number || '—',
     hIndex: row.h_index != null ? String(row.h_index) : '—',
     email: row.email || '—',
-    avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(teacherId) || 'ProfConnect')}&backgroundColor=0a1628`,
+    avatar: avatarFor(row, String(teacherId), '0a1628'),
   }
 }

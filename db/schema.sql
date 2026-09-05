@@ -117,3 +117,81 @@ create table if not exists public.notification (
 );
 
 create index if not exists idx_notification_recipient on public.notification(recipient_role, recipient_id, created_at desc);
+
+-- ── teacher availability persistence ────────────────────────────────────
+-- Added later — same deal as `message`/`notification` above: safe to run
+-- standalone against a project that already has `teacher` populated.
+--
+-- "Available in Room" used to live only in server/app/availability_store.py
+-- as an in-memory dict, so a professor's status reset to "away" on every
+-- backend restart. These two columns make it durable; availability_store.py
+-- now reads/writes them instead of the in-memory map.
+alter table public.teacher add column if not exists available boolean not null default false;
+alter table public.teacher add column if not exists available_updated_at timestamptz;
+
+-- ── timetable_entry ────────────────────────────────────────────────────
+-- Added later — same deal as the blocks above: `if not exists`, safe to
+-- run standalone against a project that already has `student`/`teacher`
+-- populated.
+--
+-- One row per class in a signed-in user's personal weekly timetable
+-- (either role can upload one — see server/app/timetable_parser.py for the
+-- CSV format this backs, and README.md's "Timetable" section for the
+-- user-facing spec). owner_role + owner_id together identify whose
+-- timetable this is (a student's rollno or a teacher's teacher_id) — same
+-- pattern as notification's recipient_role/recipient_id, since which
+-- table owner_id points at depends on owner_role.
+create table if not exists public.timetable_entry (
+  entry_id     bigint generated always as identity primary key,
+  owner_role   text not null check (owner_role in ('student', 'teacher')),
+  owner_id     bigint not null,
+  day_of_week  text not null check (day_of_week in ('Mon', 'Tue', 'Wed', 'Thu', 'Fri')),
+  start_time   time not null,
+  end_time     time not null,
+  subject      text not null,
+  room         text,
+  instructor   text,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists idx_timetable_owner on public.timetable_entry(owner_role, owner_id, day_of_week, start_time);
+
+-- ── timetable class type (lecture / tutorial / lab) ─────────────────────
+-- Added later — same deal as the blocks above: an idempotent `alter table
+-- ... add column if not exists`, safe to run standalone even if
+-- `timetable_entry` already has rows in it (they all default to 'lecture').
+--
+-- Lets the grid color-code by class *kind* rather than by subject — see
+-- README.md's "Timetable" section and src/components/TimetableGrid.jsx.
+alter table public.timetable_entry
+  add column if not exists class_type text not null default 'lecture'
+    check (class_type in ('lecture', 'tutorial', 'lab'));
+
+-- ── profile photo ────────────────────────────────────────────────────────
+-- Added later — idempotent `alter table ... add column if not exists`,
+-- safe to run standalone against a project with existing student/teacher
+-- rows (they all default to null, i.e. "no photo uploaded yet" — the
+-- frontend falls back to a generated placeholder avatar in that case, see
+-- src/lib/profile.js).
+--
+-- Holds the public URL of whatever's in the `avatars` Storage bucket for
+-- that user, not the image bytes themselves — see server/app/routers/
+-- profile_photo.py and README.md's "Profile photo" section for the upload
+-- flow and the Storage bucket this depends on (created via the Supabase
+-- Dashboard or the SQL further down this block, not this file's tables).
+alter table public.student add column if not exists avatar_url text;
+alter table public.teacher add column if not exists avatar_url text;
+
+-- The bucket itself: a Storage bucket is just a row in `storage.buckets`,
+-- so it can be created here too rather than through the Dashboard UI.
+-- `public = true` means uploaded photos are served directly over HTTPS
+-- with no auth needed to *view* them (uploads still require a valid JWT —
+-- see profile_photo.py — since the backend uses the service-role key,
+-- which bypasses Storage's row-level security entirely). Re-running this
+-- is safe: `on conflict` just refreshes the size/type limits.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 5242880, array['image/png', 'image/jpeg'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;

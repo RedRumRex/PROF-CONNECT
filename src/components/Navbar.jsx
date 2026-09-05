@@ -7,6 +7,7 @@ const NAV_LINKS = [
   { to: '/home',                                          label: 'Home'     },
   { to: '/home#explore',                                  label: 'Explore'  },
   { to: '/messages', pathKey: '/messages',                label: 'Messages' },
+  { to: '/timetable', pathKey: '/timetable',               label: 'Timetable' },
   { to: 'https://www.thapar.edu/students/pages/webkiosk', label: 'Webkiosk', external: true },
   { to: 'https://lms.thapar.edu/moodle/login/index.php', label: 'LMS', external: true }
 ]

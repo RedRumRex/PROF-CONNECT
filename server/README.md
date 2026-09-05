@@ -129,3 +129,30 @@ Point:
 See `../pi-client/status_client.py` for a working example of the device
 side of this integration (reading a physical control via GPIO, pushing
 status, and polling for remote changes to keep the door display in sync).
+
+## Testing
+
+```bash
+cd server
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests live in `tests/` and cover the real router/auth/notification logic
+(`app/routers/messages.py`, `app/routers/appointments.py`,
+`app/routers/timetable.py`, `app/routers/profile_photo.py`, `app/auth_utils.py`,
+`app/notifications.py`, `app/availability_store.py`, `app/timetable_parser.py`)
+without touching Supabase or the network: `tests/conftest.py`'s `fake_db` fixture
+injects an in-memory stand-in as `app.db.supabase` *before* a router module is
+imported, so `from ..db import supabase` binds to the fake instead of `db.py`'s
+real `create_client(...)` + live connectivity probe (its `.storage` is a small
+fake too, for `profile_photo.py`'s upload flow). This is the same
+sys.modules-substitution approach used for ad hoc verification earlier in
+this project (see `CONTEXT.md`), formalized into fixtures.
+
+No suite yet covers the frontend (`src/`) or the Socket.IO layer
+(`sockets.py`) — the parts most likely to silently break (ownership checks,
+unread counts, best-effort notifications, availability persistence,
+timetable CSV validation, profile-photo replace-in-place semantics, and the
+public-teacher-timetable/private-student-timetable
+visibility split) is what's tested for now.

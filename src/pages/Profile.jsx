@@ -3,9 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
+import TimetableGrid from '../components/TimetableGrid'
+import ImageLightbox from '../components/ImageLightbox'
 import useLiveStatus from '../hooks/useLiveStatus'
 import { fetchTeacher } from '../api/teachers'
+import { fetchTeacherTimetable } from '../api/timetable'
 import { mapTeacherCard } from '../lib/profile'
+import { getToken } from '../lib/auth'
 
 const STATUS_COLORS = {
   available: { dot: 'bg-green-500',  text: 'text-green-400',  label: 'Available' },
@@ -21,6 +25,15 @@ export default function Profile() {
   const [loading,   setLoading]   = useState(true)
   const [loadError, setLoadError] = useState('')
 
+  // The professor's own timetable — visible to any signed-in student or
+  // teacher viewing this profile (unlike a student's timetable, which is
+  // visible only to that student).
+  const [timetable,      setTimetable]      = useState([])
+  const [ttLoading,      setTtLoading]      = useState(true)
+  const [ttError,        setTtError]        = useState('')
+
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
   useEffect(() => {
     setLoading(true)
     setLoadError('')
@@ -28,6 +41,17 @@ export default function Profile() {
       .then((row) => setTeacher(mapTeacherCard(row)))
       .catch((err) => setLoadError(err.message || 'Professor not found.'))
       .finally(() => setLoading(false))
+  }, [id])
+
+  useEffect(() => {
+    const token = getToken()
+    if (!token) { setTtLoading(false); return }
+    setTtLoading(true)
+    setTtError('')
+    fetchTeacherTimetable(id, token)
+      .then(setTimetable)
+      .catch((err) => setTtError(err.message || "Could not load this professor's timetable."))
+      .finally(() => setTtLoading(false))
   }, [id])
 
   // Live availability pushed from this professor's door-mounted Raspberry Pi.
@@ -79,11 +103,16 @@ export default function Profile() {
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-primary/5 blur-[80px] rounded-full pointer-events-none" />
           <div className="flex flex-col md:flex-row gap-8 items-start">
 
-            {/* Avatar */}
+            {/* Avatar — click to enlarge */}
             <div className="relative shrink-0">
-              <div className="w-32 h-32 rounded-2xl overflow-hidden ring-2 ring-primary/20 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                className="block w-32 h-32 rounded-2xl overflow-hidden ring-2 ring-primary/20 shadow-2xl cursor-zoom-in"
+                title="Click to enlarge"
+              >
                 <img src={teacher.avatar} alt={teacher.name} className="w-full h-full object-cover" />
-              </div>
+              </button>
               <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-surface-container-highest ${statusStyle.dot}`} />
             </div>
 
@@ -144,9 +173,30 @@ export default function Profile() {
             </div>
           </div>
         </div>
+
+        {/* ── TIMETABLE ────────────────────────────────────── */}
+        <div>
+          <div className="mb-4">
+            <h2 className="text-2xl font-headline font-extrabold tracking-tighter text-on-surface">Weekly Timetable</h2>
+            <p className="text-on-surface-variant text-sm mt-0.5 opacity-60">
+              Monday – Friday · 8:00 AM – 5:10 PM · Lunch break 1:00 – 1:50 PM
+            </p>
+          </div>
+          <TimetableGrid
+            entries={timetable}
+            loading={ttLoading}
+            loadError={ttError}
+            emptyTitle="No timetable uploaded yet"
+            emptyBody="This professor hasn't uploaded their timetable yet."
+          />
+        </div>
       </main>
 
       <BottomNav />
+
+      {lightboxOpen && (
+        <ImageLightbox src={teacher.avatar} alt={teacher.name} onClose={() => setLightboxOpen(false)} />
+      )}
     </div>
   )
 }

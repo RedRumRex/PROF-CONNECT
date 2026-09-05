@@ -1,0 +1,18 @@
+day,start_time,end_time,subject,room,instructor,type
+Mon,08:00,08:50,Data Structures,LT-1,Dr. Sharma,lecture
+Mon,09:00,09:50,Digital Electronics,LT-2,Dr. Iyer,lecture
+Mon,10:00,11:40,Data Structures Lab,Lab-2,Dr. Sharma,lab
+Mon,14:00,14:50,Signals and Systems,LT-3,Dr. Rao,lecture
+Tue,08:00,08:50,Digital Electronics,LT-2,Dr. Iyer,lecture
+Tue,09:00,09:50,Engineering Mathematics,LT-1,Dr. Verma,tutorial
+Tue,11:00,12:50,Digital Electronics Lab,Lab-1,Dr. Iyer,lab
+Tue,14:00,14:50,Signals and Systems,LT-3,Dr. Rao,lecture
+Wed,08:00,09:50,Data Structures,LT-1,Dr. Sharma,lecture
+Wed,10:00,10:50,Engineering Mathematics,LT-1,Dr. Verma,tutorial
+Wed,15:00,15:50,Communication Skills,LT-4,Dr. Nair,lecture
+Thu,09:00,09:50,Signals and Systems,LT-3,Dr. Rao,lecture
+Thu,10:00,11:40,Engineering Mathematics,LT-1,Dr. Verma,tutorial
+Thu,14:00,15:50,Data Structures Lab,Lab-2,Dr. Sharma,lab
+Fri,08:00,08:50,Digital Electronics,LT-2,Dr. Iyer,lecture
+Fri,09:00,09:50,Data Structures,LT-1,Dr. Sharma,lecture
+Fri,15:00,16:50,Communication Skills Workshop,LT-4,Dr. Nair,tutorial

@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
+import ImageLightbox from '../components/ImageLightbox'
 import { getMe } from '../api/auth'
+import { uploadProfilePhoto } from '../api/profile'
 import { getToken, getProfile, getRole, setProfile as persistProfile } from '../lib/auth'
 import { mapStudentProfile, mapTeacherProfile } from '../lib/profile'
 
@@ -19,8 +21,12 @@ const ACHIEVEMENTS = [
 const STUDENT_TABS = []
 const TEACHER_TABS = ['Overview', 'Achievements']
 
+const ALLOWED_PHOTO_TYPES = ['image/png', 'image/jpeg']
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // mirrors the server-side limit — see server/app/routers/profile_photo.py
+
 export default function StudentProfile() {
   const navigate = useNavigate()
+  const photoInputRef = useRef(null)
   const [role, setRoleState] = useState(() => getRole() || 'student')
   const isTeacher = role === 'teacher'
   const TABS = isTeacher ? TEACHER_TABS : STUDENT_TABS
@@ -29,7 +35,14 @@ export default function StudentProfile() {
   const [profile, setProfileState] = useState(() =>
     isTeacher ? mapTeacherProfile(getProfile()) : mapStudentProfile(getProfile())
   )
+  // Whether the current avatar is a real uploaded photo (vs. the generated
+  // placeholder) — decides whether the button reads "Add" or "Change".
+  const [hasPhoto, setHasPhoto] = useState(() => Boolean(getProfile()?.avatar_url))
   const [loadError, setLoadError] = useState('')
+
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoError,     setPhotoError]     = useState('')
+  const [lightboxOpen,   setLightboxOpen]   = useState(false)
 
   // Edit modal — student fields only, for now (teacher edit flow isn't
   // built yet, so the button is hidden for teachers below).
@@ -50,6 +63,7 @@ export default function StudentProfile() {
       .then((data) => {
         persistProfile(data.profile)
         setRoleState(data.role)
+        setHasPhoto(Boolean(data.profile?.avatar_url))
         setProfileState(
           data.role === 'teacher' ? mapTeacherProfile(data.profile) : mapStudentProfile(data.profile)
         )
@@ -75,6 +89,41 @@ export default function StudentProfile() {
   }
 
   const removeSkill = (skill) => setDraft(d => ({ ...d, skills: d.skills.filter(s => s !== skill) }))
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // so re-selecting the same file after fixing it still fires onChange
+    if (!file) return
+
+    setPhotoError('')
+
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+      setPhotoError('Please choose a .png or .jpg/.jpeg image.')
+      return
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      setPhotoError(`That image is too large — please keep it under ${MAX_PHOTO_BYTES / (1024 * 1024)}MB.`)
+      return
+    }
+
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+
+    setPhotoUploading(true)
+    try {
+      const { avatar_url } = await uploadProfilePhoto(file, token)
+      setHasPhoto(true)
+      setProfileState((p) => ({ ...p, avatar: avatar_url }))
+      // Keep the cached profile (used to paint instantly on the next visit)
+      // in sync too, so a page reload doesn't briefly show the old avatar.
+      const cached = getProfile() || {}
+      persistProfile({ ...cached, avatar_url })
+    } catch (err) {
+      setPhotoError(err.message || 'Could not upload that photo.')
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background text-on-surface font-body">
@@ -112,13 +161,40 @@ export default function StudentProfile() {
           <div className="px-6 md:px-8 pt-0 pb-6">
             {/* Avatar + name in a clean side-by-side row */}
             <div className="flex items-center gap-5 mt-4 mb-6">
-  {/* Avatar */}
-  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-2 border-white/10 overflow-hidden bg-surface-container shrink-0 shadow-xl">
-    <img src={profile.avatar} alt={profile.name} className="w-full h-full object-cover" />
-  </div>
+              {/* Avatar — click to enlarge, camera badge to add/change */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(true)}
+                  className="block w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-2 border-white/10 overflow-hidden bg-surface-container shadow-xl cursor-zoom-in"
+                  title="Click to enlarge"
+                >
+                  <img src={profile.avatar} alt={profile.name} className="w-full h-full object-cover" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={photoUploading}
+                  className="absolute -bottom-1.5 -right-1.5 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center border-2 border-surface-container shadow-lg hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={hasPhoto ? 'Change Photo' : 'Add Profile Photo'}
+                >
+                  {photoUploading ? (
+                    <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                  ) : (
+                    <span className="material-symbols-outlined text-[16px]">photo_camera</span>
+                  )}
+                </button>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                  onChange={handlePhotoChange}
+                  className="hidden"
+                />
+              </div>
 
-  {/* Name + badges */}
-  <div className="flex-1">
+              {/* Name + badges */}
+              <div className="flex-1">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <h1 className="text-2xl md:text-3xl font-headline font-extrabold tracking-tighter text-on-surface leading-tight">
@@ -152,6 +228,10 @@ export default function StudentProfile() {
                 </div>
               </div>
             </div>
+
+            {photoError && (
+              <p className="text-[11px] text-red-400 mb-4 -mt-3">{photoError}</p>
+            )}
 
             {/* Quick info cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -249,6 +329,10 @@ export default function StudentProfile() {
       </main>
 
       <BottomNav />
+
+      {lightboxOpen && (
+        <ImageLightbox src={profile.avatar} alt={profile.name} onClose={() => setLightboxOpen(false)} />
+      )}
 
       {/* ── EDIT PROFILE MODAL (student only) ── */}
       {editOpen && !isTeacher && (
