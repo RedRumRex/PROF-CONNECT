@@ -1,0 +1,48 @@
+name: Deploy Backend (Render)
+
+# Sanity-checks the FastAPI app, then triggers a Render deploy whenever
+# server/ code lands on main. Requires one repo secret:
+# RENDER_DEPLOY_HOOK_URL — see README.md "Deployment" section for how to
+# get it from the Render dashboard.
+#
+# Pinned to Python 3.12 deliberately — Python 3.14 has been observed to hit
+# an SSL handshake incompatibility with Supabase (see README.md "Known
+# limitations"), so CI intentionally doesn't run on the newest interpreter.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Sanity-check the app imports
+        run: python -c "from app.main import app; print('app imports OK')"
+        env:
+          # Dummy values so import-time config loading doesn't fail in CI —
+          # this step only checks the code imports cleanly, it never
+          # actually connects to Supabase or serves traffic.
+          SUPABASE_URL: "https://placeholder.supabase.co"
+          SUPABASE_SERVICE_KEY: "placeholder"
+          JWT_SECRET: "placeholder"
+
+      - name: Trigger Render deploy
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
