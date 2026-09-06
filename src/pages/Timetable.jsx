@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
@@ -85,30 +85,39 @@ export default function Timetable() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {entries.length > 0 && (
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              {entries.length > 0 && (
+                <button
+                  onClick={handleClear}
+                  className="px-4 py-2.5 rounded-xl border border-outline-variant/20 text-on-surface-variant text-sm font-bold hover:bg-white/[0.05] transition-all"
+                >
+                  Clear
+                </button>
+              )}
               <button
-                onClick={handleClear}
-                className="px-4 py-2.5 rounded-xl border border-outline-variant/20 text-on-surface-variant text-sm font-bold hover:bg-white/[0.05] transition-all"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="btn-primary px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Clear
+                <span className="material-symbols-outlined text-[18px]">upload_file</span>
+                {uploading ? 'Uploading…' : 'Upload Timetable'}
               </button>
-            )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="btn-primary px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+            <Link
+              to="/timetable/help"
+              className="inline-flex items-center gap-1 text-xs font-bold text-primary/80 hover:text-primary transition-colors"
             >
-              <span className="material-symbols-outlined text-[18px]">upload_file</span>
-              {uploading ? 'Uploading…' : 'Upload Timetable'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleFileChange}
-              className="hidden"
-            />
+              <span className="material-symbols-outlined text-[15px]">help</span>
+              How to change timetable
+            </Link>
           </div>
         </div>
 

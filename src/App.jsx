@@ -9,6 +9,7 @@ import StudentProfile from './pages/StudentProfile'
 import Profile        from './pages/Profile'
 import Messages       from './pages/Messages'
 import Timetable      from './pages/Timetable'
+import TimetableHelp  from './pages/TimetableHelp'
 import Settings       from './pages/Settings'
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/appointments"      element={<Appointments />} />
         <Route path="/messages"          element={<Messages />} />
         <Route path="/timetable"         element={<Timetable />} />
+        <Route path="/timetable/help"    element={<TimetableHelp />} />
         <Route path="/settings"          element={<Settings />} />
       </Routes>
     </BrowserRouter>
