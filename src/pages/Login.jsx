@@ -260,6 +260,9 @@ export default function Login() {
           <p className="text-[10px] uppercase tracking-[0.18em] text-on-surface-variant font-label">
             © 2025 ProfConnect · Built by Thapar Institute of Engineering and Technology
           </p>
+          <p className="text-[9px] uppercase tracking-[0.18em] text-emerald-400/70 font-label">
+            CI/CD pipeline test — auto-deployed via GitHub Actions
+          </p>
           <div className="flex gap-6 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
             {['Privacy', 'Terms', 'Security'].map((t) => (
               <button key={t} className="hover:text-primary transition-colors">{t}</button>
