@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { clearRole } from '../lib/auth'
+import { clearRole, getRole } from '../lib/auth'
 import useNotifications from '../hooks/useNotifications'
 
 const NAV_LINKS = [
   { to: '/home',                                          label: 'Home'     },
+  { to: '/dashboard', pathKey: '/dashboard', teacherOnly: true, label: 'Dashboard' },
   { to: '/home#explore',                                  label: 'Explore'  },
   { to: '/messages', pathKey: '/messages',                label: 'Messages' },
   { to: '/timetable', pathKey: '/timetable',               label: 'Timetable' },
@@ -34,6 +35,8 @@ function timeAgo(iso) {
 export default function Navbar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const role = getRole()
+  const visibleLinks = NAV_LINKS.filter((link) => !link.teacherOnly || role === 'teacher')
 
   const handleLogout = () => {
     clearRole()
@@ -59,7 +62,7 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
-            {NAV_LINKS.map((link) => {
+            {visibleLinks.map((link) => {
               const active = !link.external && pathname === (link.pathKey ?? link.to)
 
               if (link.external) {
