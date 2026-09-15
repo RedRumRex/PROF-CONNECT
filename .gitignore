@@ -26,3 +26,5 @@ server/devices.json
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*

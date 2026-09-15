@@ -6,15 +6,14 @@ import BottomNav  from '../components/BottomNav'
 import ImageLightbox from '../components/ImageLightbox'
 import { getMe } from '../api/auth'
 import { uploadProfilePhoto } from '../api/profile'
+import { fetchConversations } from '../api/messages'
 import { getToken, getProfile, getRole, setProfile as persistProfile } from '../lib/auth'
 import { mapStudentProfile, mapTeacherProfile } from '../lib/profile'
 
-const ACHIEVEMENTS = [
-  { icon: 'emoji_events',      label: 'Smart India Hackathon 2024', sub: 'Finalist'               },
-  { icon: 'workspace_premium', label: "Dean's List",                sub: 'Semester 5'             },
-  { icon: 'science',           label: 'Research Publication',       sub: 'IEEE Xplore — 2024'    },
-  { icon: 'code',              label: 'Open Source Contributor',    sub: 'GitHub — 3 merged PRs'  },
-]
+// No achievements data source exists yet (no DB table/API) — this starts
+// empty for every profile rather than shipping fabricated sample entries.
+// The "Add Achievement" button below is a placeholder for when that exists.
+const ACHIEVEMENTS = []
 
 // Students see just the profile hero now (no tabs). Teachers still get
 // Overview + Achievements.
@@ -51,6 +50,11 @@ export default function StudentProfile() {
   const [skillInput, setSkillInput] = useState('')
   const [saved,     setSaved]     = useState(false)
 
+  // Real count of distinct people this account has ever exchanged messages
+  // with (see GET /api/messages/conversations) — replaces a hardcoded
+  // "4 Active" that showed on every profile regardless of actual activity.
+  const [conversationCount, setConversationCount] = useState(0)
+
   // Pull the freshest DB row on every visit — the cached copy from login
   // is just there so the page paints instantly.
   useEffect(() => {
@@ -69,6 +73,12 @@ export default function StudentProfile() {
         )
       })
       .catch((err) => setLoadError(err.message || 'Could not load your profile.'))
+
+    fetchConversations(token)
+      .then((rows) => setConversationCount(rows.length))
+      .catch(() => {
+        // Best-effort — the stat just stays at 0 if this fails.
+      })
   }, [navigate])
 
   const openEdit = () => { setDraft({ ...profile }); setEditOpen(true); setSaved(false) }
@@ -284,8 +294,8 @@ export default function StudentProfile() {
         {tab === 'Overview' && isTeacher && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
-              { icon: 'emoji_events', label: 'Achievements',  value: ACHIEVEMENTS.length, color: 'text-primary'  },
-              { icon: 'forum',        label: 'Conversations', value: '4 Active',          color: 'text-tertiary' },
+              { icon: 'emoji_events', label: 'Achievements',  value: ACHIEVEMENTS.length,        color: 'text-primary'  },
+              { icon: 'forum',        label: 'Conversations', value: `${conversationCount} Active`, color: 'text-tertiary' },
             ].map(({ icon, label, value, color }) => (
               <div key={label} className="glass-panel rounded-xl p-4 border border-outline-variant/20 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-xl bg-surface-container-high flex items-center justify-center shrink-0">
@@ -303,6 +313,12 @@ export default function StudentProfile() {
         {/* ── ACHIEVEMENTS (teacher only) ── */}
         {tab === 'Achievements' && isTeacher && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {ACHIEVEMENTS.length === 0 && (
+              <div className="md:col-span-2 flex flex-col items-center justify-center gap-2 py-10 text-center">
+                <span className="material-symbols-outlined text-3xl text-on-surface-variant/30">emoji_events</span>
+                <p className="text-sm text-on-surface-variant opacity-60">No achievements added yet.</p>
+              </div>
+            )}
             {ACHIEVEMENTS.map(({ icon, label, sub }) => (
               <div key={label} className="glass-panel rounded-2xl border border-outline-variant/20 p-6 flex items-center gap-4 hover:border-primary/20 transition-all group">
                 <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
