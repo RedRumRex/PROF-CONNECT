@@ -211,17 +211,19 @@ def me(authorization: Optional[str] = Header(default=None)):
 # Account" confirmation (Settings.jsx) is the only gate — this endpoint
 # trusts the caller's JWT and deletes on request.
 #
-# Deleting the student/teacher row itself cascades (via `on delete cascade`
-# in db/schema.sql) to: their *_auth row, every `appointment` row they're
-# on either side of, and every `message` row they sent or received — so a
-# student's or teacher's full booking/chat history disappears with them,
-# and a deleted teacher immediately drops out of GET /api/teachers (the
-# Explore listing on Home.jsx).
+# Every related row is deleted explicitly here, in child-before-parent
+# order, rather than relying on `on delete cascade` doing it for us. A
+# live test showed the *_auth row surviving a `teacher`/`student` row
+# deletion with no error at all — the account could still log in
+# afterwards — which means the cascade FK declared in db/schema.sql isn't
+# actually in effect on every project (tables added at different times via
+# separate SQL blocks can end up missing a constraint if that specific
+# block was never (re-)run). Deleting each table ourselves works
+# regardless of what the live schema's constraints actually are.
 #
 # `notification` and `timetable_entry` are polymorphic (recipient_role/
-# recipient_id, owner_role/owner_id) rather than real foreign keys, since
-# which table they point at depends on the role — so those can't cascade
-# automatically and are cleaned up manually first. The uploaded avatar
+# recipient_id, owner_role/owner_id) rather than foreign keys at all, since
+# which table they point at depends on the role. The uploaded avatar
 # (Supabase Storage, `avatars/{role}/{id}`) is removed best-effort too.
 @router.delete("/me")
 def delete_account(authorization: Optional[str] = Header(default=None)):
@@ -233,45 +235,53 @@ def delete_account(authorization: Optional[str] = Header(default=None)):
         raise HTTPException(status_code=401, detail="Invalid session token. Please log in again.")
     owner_id = int(subject)
 
-    # Best-effort cleanup of the rows that can't cascade automatically —
-    # none of these should block the actual account deletion below.
-    try:
-        supabase.table("notification").delete().eq("recipient_role", role).eq("recipient_id", owner_id).execute()
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        supabase.table("timetable_entry").delete().eq("owner_role", role).eq("owner_id", owner_id).execute()
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        supabase.storage.from_("avatars").remove([f"{role}/{owner_id}"])
-    except Exception:  # noqa: BLE001
-        pass
+    own_col = "student_id" if role == "student" else "teacher_id"
+    auth_table, auth_key = ("student_auth", "rollno") if role == "student" else ("teacher_auth", "teacher_id")
+    main_table, main_key = ("student", "rollno") if role == "student" else ("teacher", "teacher_id")
 
-    table, key = ("student", "rollno") if role == "student" else ("teacher", "teacher_id")
+    # Best-effort cleanup — none of these should block the account deletion
+    # below, and a failure here (e.g. a table that doesn't exist yet on an
+    # older project) shouldn't stop the rest from running.
+    for cleanup in (
+        lambda: supabase.table("message").delete().eq(own_col, owner_id).execute(),
+        lambda: supabase.table("appointment").delete().eq(own_col, owner_id).execute(),
+        lambda: supabase.table("notification").delete().eq("recipient_role", role).eq("recipient_id", owner_id).execute(),
+        lambda: supabase.table("timetable_entry").delete().eq("owner_role", role).eq("owner_id", owner_id).execute(),
+        lambda: supabase.storage.from_("avatars").remove([f"{role}/{owner_id}"]),
+    ):
+        try:
+            cleanup()
+        except Exception:  # noqa: BLE001
+            pass
+
+    # The auth row is what login actually checks first — delete it
+    # explicitly rather than assuming it'll cascade from the main row.
     try:
-        result = supabase.table(table).delete().eq(key, owner_id).execute()
+        supabase.table(auth_table).delete().eq(auth_key, owner_id).execute()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Could not delete your account: {e}")
+
+    try:
+        result = supabase.table(main_table).delete().eq(main_key, owner_id).execute()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Could not delete your account: {e}")
 
     # Supabase/Postgrest returns 200 with an empty `data` list (no exception
-    # at all) when a delete matches zero rows — including when Row Level
-    # Security silently blocks it. The service_role key is supposed to
-    # bypass RLS entirely, so landing here almost always means
-    # SUPABASE_SERVICE_KEY on this server is actually the anon/publishable
-    # key rather than the service_role key: reads (login, /me) keep working
-    # either way, which is exactly why this can go unnoticed until someone
-    # deletes their account and finds they can still log back in.
+    # at all) when a delete matches zero rows — e.g. if Row Level Security
+    # silently blocked it. The service_role/secret key is supposed to
+    # bypass RLS entirely, so landing here despite using that key would
+    # point to something else being wrong (wrong id, wrong table) rather
+    # than the key itself.
     if not result.data:
         raise HTTPException(
             status_code=500,
             detail=(
-                "Your account could not be deleted — the database reported "
-                "removing 0 rows. This usually means SUPABASE_SERVICE_KEY on "
-                "the backend is the anon key instead of the service_role key "
-                "(Supabase dashboard: Project Settings -> API -> Project API "
-                "keys -> service_role / secret, not anon/publishable). Update "
-                "the env var and restart the backend, then try again."
+                "Your account's login could not be removed — the database "
+                "reported removing 0 rows. If you're using the correct "
+                "service_role/secret key, this may mean Row Level Security "
+                "on the '" + main_table + "' table is blocking deletes even "
+                "for that key — check Supabase dashboard: Authentication -> "
+                "Policies for that table."
             ),
         )
 
