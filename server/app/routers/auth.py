@@ -204,3 +204,54 @@ def me(authorization: Optional[str] = Header(default=None)):
         return MeResponse(role="teacher", profile=profile)
 
     raise HTTPException(status_code=401, detail="Invalid session token. Please log in again.")
+
+
+# ── Delete account ───────────────────────────────────────────────────────
+# Permanently removes the signed-in user's data. The frontend's "Delete
+# Account" confirmation (Settings.jsx) is the only gate — this endpoint
+# trusts the caller's JWT and deletes on request.
+#
+# Deleting the student/teacher row itself cascades (via `on delete cascade`
+# in db/schema.sql) to: their *_auth row, every `appointment` row they're
+# on either side of, and every `message` row they sent or received — so a
+# student's or teacher's full booking/chat history disappears with them,
+# and a deleted teacher immediately drops out of GET /api/teachers (the
+# Explore listing on Home.jsx).
+#
+# `notification` and `timetable_entry` are polymorphic (recipient_role/
+# recipient_id, owner_role/owner_id) rather than real foreign keys, since
+# which table they point at depends on the role — so those can't cascade
+# automatically and are cleaned up manually first. The uploaded avatar
+# (Supabase Storage, `avatars/{role}/{id}`) is removed best-effort too.
+@router.delete("/me")
+def delete_account(authorization: Optional[str] = Header(default=None)):
+    _require_db()
+    claims = require_claims(authorization)
+    role = claims.get("role")
+    subject = claims.get("sub")
+    if role not in ("student", "teacher") or subject is None:
+        raise HTTPException(status_code=401, detail="Invalid session token. Please log in again.")
+    owner_id = int(subject)
+
+    # Best-effort cleanup of the rows that can't cascade automatically —
+    # none of these should block the actual account deletion below.
+    try:
+        supabase.table("notification").delete().eq("recipient_role", role).eq("recipient_id", owner_id).execute()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        supabase.table("timetable_entry").delete().eq("owner_role", role).eq("owner_id", owner_id).execute()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        supabase.storage.from_("avatars").remove([f"{role}/{owner_id}"])
+    except Exception:  # noqa: BLE001
+        pass
+
+    table, key = ("student", "rollno") if role == "student" else ("teacher", "teacher_id")
+    try:
+        supabase.table(table).delete().eq(key, owner_id).execute()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Could not delete your account: {e}")
+
+    return {"message": "Account deleted."}

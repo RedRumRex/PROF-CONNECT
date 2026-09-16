@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
+import { deleteAccount } from '../api/auth'
+import { getToken, clearRole } from '../lib/auth'
 
 // ── Toggle component ──────────────────────────────────────────
 function Toggle({ value, onChange }) {
@@ -138,6 +140,8 @@ export default function Settings() {
   const [showLogout,   setShowLogout]   = useState(false)
   const [showDelete,   setShowDelete]   = useState(false)
   const [deleteInput,  setDeleteInput]  = useState('')
+  const [deleting,     setDeleting]     = useState(false)
+  const [deleteError,  setDeleteError]  = useState('')
   const [pwModal,      setPwModal]      = useState(false)
   const [pw,           setPw]           = useState({ current: '', next: '', confirm: '' })
   const [pwSaved,      setPwSaved]      = useState(false)
@@ -148,6 +152,26 @@ export default function Settings() {
     if (!pw.current || !pw.next || pw.next !== pw.confirm) return
     setPwSaved(true)
     setTimeout(() => { setPwSaved(false); setPwModal(false); setPw({ current: '', next: '', confirm: '' }) }, 1500)
+  }
+
+  // Permanently deletes the account server-side (cascades to auth,
+  // appointments, messages; cleans up notifications/timetable/avatar too —
+  // see DELETE /api/auth/me), then clears the local session and boots the
+  // user back to /login since there's nothing left to be signed in to.
+  const confirmDelete = async () => {
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await deleteAccount(token)
+      clearRole()
+      navigate('/login')
+    } catch (err) {
+      setDeleteError(err.message || 'Could not delete your account. Please try again.')
+      setDeleting(false)
+    }
   }
 
   const SECTIONS = [
@@ -464,18 +488,26 @@ export default function Settings() {
               value={deleteInput}
               onChange={e => setDeleteInput(e.target.value)}
               placeholder="Type DELETE to confirm"
-              className="w-full bg-white/[0.05] border border-red-500/20 rounded-xl px-4 py-2.5 text-sm text-on-surface outline-none focus:ring-1 focus:ring-red-500/40 transition-all mb-4 placeholder:text-stone-600"
+              disabled={deleting}
+              className="w-full bg-white/[0.05] border border-red-500/20 rounded-xl px-4 py-2.5 text-sm text-on-surface outline-none focus:ring-1 focus:ring-red-500/40 transition-all mb-4 placeholder:text-stone-600 disabled:opacity-50"
             />
+            {deleteError && (
+              <p className="text-[11px] text-red-400 mb-4 -mt-2">{deleteError}</p>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => { setShowDelete(false); setDeleteInput('') }} className="flex-1 py-2.5 rounded-xl border border-outline-variant/30 text-on-surface-variant font-bold text-sm hover:bg-white/[0.04] transition-colors">
+              <button
+                onClick={() => { setShowDelete(false); setDeleteInput(''); setDeleteError('') }}
+                disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl border border-outline-variant/30 text-on-surface-variant font-bold text-sm hover:bg-white/[0.04] transition-colors disabled:opacity-50"
+              >
                 Cancel
               </button>
               <button
-                disabled={deleteInput !== 'DELETE'}
-                onClick={() => navigate('/login')}
+                disabled={deleteInput !== 'DELETE' || deleting}
+                onClick={confirmDelete}
                 className="flex-1 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold text-sm hover:bg-red-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                Delete Forever
+                {deleting ? 'Deleting…' : 'Delete Forever'}
               </button>
             </div>
           </div>

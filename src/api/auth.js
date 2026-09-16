@@ -51,3 +51,16 @@ export async function getMe(token) {
   })
   return handleResponse(res)
 }
+
+// DELETE /api/auth/me — permanently deletes the signed-in user's account:
+// their student/teacher row, auth row, every appointment and message
+// they're party to, their notifications, timetable, and avatar. Nothing
+// left to undo — the frontend should clear the local session and redirect
+// to /login right after this resolves.
+export async function deleteAccount(token) {
+  const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return handleResponse(res)
+}
