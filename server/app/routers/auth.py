@@ -206,20 +206,57 @@ def me(authorization: Optional[str] = Header(default=None)):
     raise HTTPException(status_code=401, detail="Invalid session token. Please log in again.")
 
 
+def _delete_and_verify(table: str, col: str, value) -> None:
+    """Deletes every row where `col` = `value` from `table`, and raises a
+    precise, actionable error if Supabase reports back that 0 rows were
+    removed — instead of treating that as success.
+
+    This distinguishes the two ways a delete can silently do nothing:
+    - No row matched at all (checked with a SELECT first) — not
+      necessarily wrong (e.g. cleaning up a table the account never had
+      rows in), so this alone isn't an error for the *_auth/main tables
+      either, since a row existing at signup should always still be there.
+    - A row *does* match on SELECT, but the DELETE itself reports 0 rows
+      removed — this is the "silently did nothing" case (e.g. a Row Level
+      Security policy blocking deletes specifically, a BEFORE DELETE
+      trigger swallowing it, or a stale schema cache) and is the one worth
+      surfacing loudly, since it produces exactly the bug reported here:
+      the frontend sees a 200 and moves on, but the row — and the ability
+      to log back in with it — never actually goes away.
+    """
+    existing = supabase.table(table).select(col).eq(col, value).execute().data
+    if not existing:
+        return  # Nothing to delete here — not an error.
+
+    result = supabase.table(table).delete().eq(col, value).execute()
+    if not result.data:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Deleting from '{table}' (where {col} = {value}) found a matching row "
+                f"but the database reported 0 rows removed. This points to something on "
+                f"the '{table}' table specifically blocking deletes — check Supabase "
+                f"dashboard: Authentication -> Policies for a Row Level Security policy "
+                f"on '{table}', or Database -> Triggers for a trigger intercepting DELETE."
+            ),
+        )
+
+
 # ── Delete account ───────────────────────────────────────────────────────
 # Permanently removes the signed-in user's data. The frontend's "Delete
 # Account" confirmation (Settings.jsx) is the only gate — this endpoint
 # trusts the caller's JWT and deletes on request.
 #
 # Every related row is deleted explicitly here, in child-before-parent
-# order, rather than relying on `on delete cascade` doing it for us. A
+# order, rather than relying on `on delete cascade` doing it for us — a
 # live test showed the *_auth row surviving a `teacher`/`student` row
-# deletion with no error at all — the account could still log in
-# afterwards — which means the cascade FK declared in db/schema.sql isn't
-# actually in effect on every project (tables added at different times via
-# separate SQL blocks can end up missing a constraint if that specific
-# block was never (re-)run). Deleting each table ourselves works
-# regardless of what the live schema's constraints actually are.
+# deletion with no error at all (the account could still log in
+# afterwards), so the cascade FK declared in db/schema.sql can't be
+# trusted to actually be in effect on every project. The *_auth and main
+# rows are additionally verified via `_delete_and_verify` above, since
+# those two are what actually gate whether the account can still log in —
+# an unverified `.delete()` call can report success while quietly
+# deleting nothing at all.
 #
 # `notification` and `timetable_entry` are polymorphic (recipient_role/
 # recipient_id, owner_role/owner_id) rather than foreign keys at all, since
@@ -254,35 +291,16 @@ def delete_account(authorization: Optional[str] = Header(default=None)):
         except Exception:  # noqa: BLE001
             pass
 
-    # The auth row is what login actually checks first — delete it
-    # explicitly rather than assuming it'll cascade from the main row.
+    # These two are what actually gate whether the account still works —
+    # verified, not just attempted. The auth row goes first since that's
+    # what login checks; if it fails, the main row is left alone rather
+    # than half-deleting the account.
     try:
-        supabase.table(auth_table).delete().eq(auth_key, owner_id).execute()
+        _delete_and_verify(auth_table, auth_key, owner_id)
+        _delete_and_verify(main_table, main_key, owner_id)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Could not delete your account: {e}")
-
-    try:
-        result = supabase.table(main_table).delete().eq(main_key, owner_id).execute()
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Could not delete your account: {e}")
-
-    # Supabase/Postgrest returns 200 with an empty `data` list (no exception
-    # at all) when a delete matches zero rows — e.g. if Row Level Security
-    # silently blocked it. The service_role/secret key is supposed to
-    # bypass RLS entirely, so landing here despite using that key would
-    # point to something else being wrong (wrong id, wrong table) rather
-    # than the key itself.
-    if not result.data:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Your account's login could not be removed — the database "
-                "reported removing 0 rows. If you're using the correct "
-                "service_role/secret key, this may mean Row Level Security "
-                "on the '" + main_table + "' table is blocking deletes even "
-                "for that key — check Supabase dashboard: Authentication -> "
-                "Policies for that table."
-            ),
-        )
 
     return {"message": "Account deleted."}
