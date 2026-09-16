@@ -250,8 +250,29 @@ def delete_account(authorization: Optional[str] = Header(default=None)):
 
     table, key = ("student", "rollno") if role == "student" else ("teacher", "teacher_id")
     try:
-        supabase.table(table).delete().eq(key, owner_id).execute()
+        result = supabase.table(table).delete().eq(key, owner_id).execute()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Could not delete your account: {e}")
+
+    # Supabase/Postgrest returns 200 with an empty `data` list (no exception
+    # at all) when a delete matches zero rows — including when Row Level
+    # Security silently blocks it. The service_role key is supposed to
+    # bypass RLS entirely, so landing here almost always means
+    # SUPABASE_SERVICE_KEY on this server is actually the anon/publishable
+    # key rather than the service_role key: reads (login, /me) keep working
+    # either way, which is exactly why this can go unnoticed until someone
+    # deletes their account and finds they can still log back in.
+    if not result.data:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Your account could not be deleted — the database reported "
+                "removing 0 rows. This usually means SUPABASE_SERVICE_KEY on "
+                "the backend is the anon key instead of the service_role key "
+                "(Supabase dashboard: Project Settings -> API -> Project API "
+                "keys -> service_role / secret, not anon/publishable). Update "
+                "the env var and restart the backend, then try again."
+            ),
+        )
 
     return {"message": "Account deleted."}
