@@ -115,6 +115,45 @@ def get_thread(
     )
 
 
+# DELETE /api/messages/thread?student_id=&teacher_id= — "Clear history".
+# Deletes every message in this (student, teacher) thread. The thread is
+# shared, so it is cleared for both participants, not just the caller. The
+# caller's own unread "new message" notifications for the thread go too, so
+# the unread badge doesn't point at messages that no longer exist.
+@router.delete("/thread")
+def clear_thread(
+    student_id: int,
+    teacher_id: int,
+    authorization: Optional[str] = Header(default=None),
+):
+    _require_db()
+    claims = require_claims(authorization)
+    role = _check_participant(claims, student_id, teacher_id)
+
+    _run_query(
+        lambda: (
+            supabase.table("message")
+            .delete()
+            .eq("student_id", student_id)
+            .eq("teacher_id", teacher_id)
+            .execute()
+        ),
+        "clear this conversation",
+    )
+
+    other_id = teacher_id if role == "student" else student_id
+    try:
+        supabase.table("notification").delete() \
+            .eq("recipient_role", role) \
+            .eq("recipient_id", int(claims["sub"])) \
+            .eq("type", "message") \
+            .eq("link", _thread_notify_link(role, other_id)) \
+            .execute()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True}
+
+
 @router.post("", status_code=201)
 async def send_message(payload: MessageCreate, authorization: Optional[str] = Header(default=None)):
     _require_db()

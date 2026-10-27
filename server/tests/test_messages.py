@@ -130,3 +130,46 @@ def test_missing_message_table_returns_clean_503(fake_db, make_token):
         messages.get_thread(student_id=101, teacher_id=1, authorization=bearer(token))
     assert exc_info.value.status_code == 503
     assert "schema.sql" in exc_info.value.detail
+
+
+# ── Clear history ────────────────────────────────────────────────────────
+def _seed_clear(fake_db):
+    fake_db.tables["message"] = [
+        {"message_id": 1, "student_id": 101, "teacher_id": 1, "sender_role": "student", "body": "hi"},
+        {"message_id": 2, "student_id": 101, "teacher_id": 1, "sender_role": "teacher", "body": "hello"},
+        {"message_id": 3, "student_id": 101, "teacher_id": 2, "sender_role": "student", "body": "other prof"},
+        {"message_id": 4, "student_id": 102, "teacher_id": 1, "sender_role": "student", "body": "other student"},
+    ]
+    fake_db.tables["notification"] = [
+        {"notification_id": 1, "recipient_role": "teacher", "recipient_id": 1, "type": "message", "link": "/dashboard?student_id=101", "read": False},
+        {"notification_id": 2, "recipient_role": "teacher", "recipient_id": 1, "type": "message", "link": "/dashboard?student_id=102", "read": False},
+        {"notification_id": 3, "recipient_role": "student", "recipient_id": 101, "type": "message", "link": "/appointment/1", "read": False},
+    ]
+
+
+def test_clear_thread_deletes_only_that_thread(fake_db, make_token):
+    messages = load_messages_router()
+    _seed_clear(fake_db)
+    out = messages.clear_thread(101, 1, authorization=bearer(make_token("student", 101)))
+    assert out == {"ok": True}
+    assert sorted(m["message_id"] for m in fake_db.tables["message"]) == [3, 4]
+
+
+def test_teacher_can_clear_thread_and_only_own_notifications_go(fake_db, make_token):
+    messages = load_messages_router()
+    _seed_clear(fake_db)
+    messages.clear_thread(101, 1, authorization=bearer(make_token("teacher", 1)))
+    assert sorted(m["message_id"] for m in fake_db.tables["message"]) == [3, 4]
+    # Teacher 1's notification for student 101 is gone; the other student's
+    # and the student's own notification are untouched.
+    assert sorted(n["notification_id"] for n in fake_db.tables["notification"]) == [2, 3]
+
+
+def test_non_participant_cannot_clear_thread(fake_db, make_token):
+    messages = load_messages_router()
+    _seed_clear(fake_db)
+    for role, sub in (("student", 102), ("teacher", 2)):
+        with pytest.raises(HTTPException) as exc_info:
+            messages.clear_thread(101, 1, authorization=bearer(make_token(role, sub)))
+        assert exc_info.value.status_code == 403
+    assert len(fake_db.tables["message"]) == 4

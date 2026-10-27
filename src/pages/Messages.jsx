@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
-import { fetchConversations, markConversationRead, fetchThread, sendMessage as postMessage } from '../api/messages'
+import { fetchConversations, markConversationRead, fetchThread, sendMessage as postMessage, clearThread } from '../api/messages'
 import { subscribeToNotifications } from '../api/notifications'
 import { getToken, getRole, getProfile } from '../lib/auth'
 import useLiveStatus from '../hooks/useLiveStatus'
@@ -80,8 +80,16 @@ function groupByDate(messages) {
 
 export default function Messages() {
   const navigate = useNavigate()
+  const location = useLocation()
   const role = getRole()
   const myId = role === 'student' ? getProfile()?.rollno : getProfile()?.teacher_id
+
+  // Set when arriving from a "Reschedule" button on the Appointments page:
+  // { otherId, name, sub, draft }. Opens that person's chat with `draft`
+  // typed into the box — but never sent automatically.
+  const rescheduleTarget = location.state?.reschedule ?? null
+  const rescheduleApplied = useRef(false)
+  const inputRef = useRef(null)
 
   const [activeId,       setActiveId]       = useState(null)
   const [input,          setInput]          = useState('')
@@ -94,6 +102,7 @@ export default function Messages() {
   const [chatLoading,    setChatLoading]    = useState(false)
   const [chatError,      setChatError]      = useState('')
   const [chatSending,    setChatSending]    = useState(false)
+  const [clearing,       setClearing]       = useState(false)
   const messagesEndRef = useRef(null)
 
   const { statusMap } = useLiveStatus() // only meaningful for a student's teacher counterparts
@@ -169,6 +178,38 @@ export default function Messages() {
     if (token) markConversationRead(id, token).catch(() => {})
   }
 
+  // ── "Reschedule" arrival: open (or start) the chat with that person and
+  // pre-fill the message box. Runs once, after the conversation list has
+  // loaded, so an existing conversation is reused rather than duplicated.
+  // A person with no messages yet has no row in the list (conversations are
+  // derived from the `message` table), so a placeholder entry is added for
+  // them — it gets a real last message the moment the first one is sent.
+  useEffect(() => {
+    if (!rescheduleTarget || rescheduleApplied.current || listLoading) return
+    rescheduleApplied.current = true
+
+    const id = Number(rescheduleTarget.otherId)
+    setConversations(prev =>
+      prev.some(c => c.id === id)
+        ? prev
+        : [{
+            id,
+            name: rescheduleTarget.name,
+            department: rescheduleTarget.sub || null,
+            designation: null,
+            last_message: { body: '', sender_role: null, created_at: null },
+            unread: 0,
+          }, ...prev]
+    )
+    selectConvo(id)
+    setInput(rescheduleTarget.draft || '')
+    setTimeout(() => inputRef.current?.focus(), 50)
+
+    // Drop the one-shot state so a page refresh doesn't re-apply it.
+    navigate('/messages', { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rescheduleTarget, listLoading])
+
   const sendMessage = async () => {
     const body = input.trim()
     if (!body || !activeId || chatSending) return
@@ -199,6 +240,32 @@ export default function Messages() {
       setChatError(err.message || 'Could not send that message. Please try again.')
     } finally {
       setChatSending(false)
+    }
+  }
+
+  // "Clear history" — deletes every message in this thread. The thread is
+  // shared, so it is cleared for the other person as well.
+  const clearHistory = async () => {
+    if (!activeId || clearing) return
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+    if (!window.confirm(`Clear all messages with ${active?.name || 'this person'}? This deletes the history for both of you and can't be undone.`)) return
+
+    setClearing(true)
+    setChatError('')
+    try {
+      const studentId = role === 'student' ? myId : activeId
+      const teacherId = role === 'student' ? activeId : myId
+      await clearThread(studentId, teacherId, token)
+      setMessages([])
+      setConversations(prev => prev.map(c => c.id === activeId
+        ? { ...c, unread: 0, last_message: { body: '', sender_role: null, created_at: null } }
+        : c
+      ))
+    } catch (err) {
+      setChatError(err.message || 'Could not clear this conversation. Please try again.')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -366,6 +433,16 @@ export default function Messages() {
                     {[active.department, active.designation].filter(Boolean).join(' · ') || '—'}
                   </p>
                 </div>
+
+                <button
+                  onClick={clearHistory}
+                  disabled={clearing || messages.length === 0}
+                  title="Clear history"
+                  className="shrink-0 px-3 py-1.5 rounded-xl border border-white/[0.08] text-stone-400 text-xs font-bold hover:bg-error/10 hover:text-error hover:border-error/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
+                  <span className="hidden sm:inline">Clear history</span>
+                </button>
               </div>
 
               {/* Messages area */}
@@ -437,6 +514,7 @@ export default function Messages() {
                 <div className="flex items-end gap-2">
                   <div className="flex-1 relative">
                     <textarea
+                      ref={inputRef}
                       rows={1}
                       value={input}
                       onChange={e => {

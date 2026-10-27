@@ -65,3 +65,14 @@ export async function respondToAppointment(appointmentId, accept, token) {
   })
   return handleResponse(res)
 }
+
+// DELETE /api/appointments/:id — removes the appointment entry for both
+// sides. Allowed for the student who requested it or the teacher it was
+// addressed to.
+export async function deleteAppointment(appointmentId, token) {
+  const res = await fetch(`${API_BASE_URL}/api/appointments/${appointmentId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return handleResponse(res)
+}

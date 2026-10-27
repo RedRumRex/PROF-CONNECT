@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
-import { fetchMyAppointmentsAsStudent, fetchAppointmentsForTeacher } from '../api/appointments'
+import { fetchMyAppointmentsAsStudent, fetchAppointmentsForTeacher, deleteAppointment } from '../api/appointments'
 import { getToken, getRole } from '../lib/auth'
 
 function formatDate(dateStr) {
@@ -49,6 +49,9 @@ function mapRow(row, role) {
   }
 }
 
+// Pre-filled (not auto-sent) in the chat box when someone hits "Reschedule".
+const RESCHEDULE_MESSAGE = 'Can we reschedule the meeting?'
+
 const STATUS_STYLES = {
   pending:  'bg-amber-500/10 text-amber-400',
   accepted: 'bg-tertiary/10 text-tertiary',
@@ -63,6 +66,8 @@ export default function Appointments() {
   const [rows,    setRows]    = useState([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')
+  const [deletingId,   setDeletingId]   = useState(null)
+  const [deleteError,  setDeleteError]  = useState('')
 
   useEffect(() => {
     const token = getToken()
@@ -76,6 +81,23 @@ export default function Appointments() {
       .catch((err) => setError(err.message || 'Could not load your appointments.'))
       .finally(() => setLoading(false))
   }, [role, navigate])
+
+  const handleDelete = async (id) => {
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+    if (deletingId) return
+    if (!window.confirm(`Delete this appointment? It will be removed for ${isStudent ? 'the professor' : 'the student'} too.`)) return
+    setDeletingId(id)
+    setDeleteError('')
+    try {
+      await deleteAppointment(id, token)
+      setRows((prev) => prev.filter((r) => r.id !== id))
+    } catch (err) {
+      setDeleteError(err.message || 'Could not delete this appointment.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const { pending, upcoming, past } = useMemo(() => {
     const now = new Date()
@@ -131,11 +153,14 @@ export default function Appointments() {
           </div>
         ) : (
           <div className="space-y-10">
-            {pending.length > 0 && (
-              <AppointmentSection title="Pending" icon="hourglass_top" items={pending} navigate={navigate} isStudent={isStudent} showMeeting={false} />
+            {deleteError && (
+              <p className="text-sm text-error">{deleteError}</p>
             )}
-            <AppointmentSection title="Upcoming" icon="event_upcoming" items={upcoming} navigate={navigate} isStudent={isStudent} showMeeting emptyText="No upcoming sessions." />
-            <AppointmentSection title="Past" icon="history" items={past} navigate={navigate} isStudent={isStudent} showMeeting={false} emptyText="No past sessions yet." />
+            {pending.length > 0 && (
+              <AppointmentSection title="Pending" icon="hourglass_top" items={pending} navigate={navigate} isStudent={isStudent} showMeeting={false} onDelete={handleDelete} deletingId={deletingId} />
+            )}
+            <AppointmentSection title="Upcoming" icon="event_upcoming" items={upcoming} navigate={navigate} isStudent={isStudent} showMeeting onDelete={handleDelete} deletingId={deletingId} emptyText="No upcoming sessions." />
+            <AppointmentSection title="Past" icon="history" items={past} navigate={navigate} isStudent={isStudent} showMeeting={false} onDelete={handleDelete} deletingId={deletingId} emptyText="No past sessions yet." />
           </div>
         )}
       </main>
@@ -145,7 +170,7 @@ export default function Appointments() {
   )
 }
 
-function AppointmentSection({ title, icon, items, navigate, isStudent, showMeeting, emptyText }) {
+function AppointmentSection({ title, icon, items, navigate, isStudent, showMeeting, onDelete, deletingId, emptyText }) {
   if (items.length === 0 && !emptyText) return null
   return (
     <section>
@@ -201,9 +226,39 @@ function AppointmentSection({ title, icon, items, navigate, isStudent, showMeeti
                   </a>
                 )}
 
+                {/* Reschedule — opens the chat with this person on the Messages
+                    page, with the message typed in but NOT sent yet. */}
+                <button
+                  onClick={() => navigate('/messages', {
+                    state: {
+                      reschedule: {
+                        otherId: r.otherId,
+                        name: r.name,
+                        sub: r.sub,
+                        draft: RESCHEDULE_MESSAGE,
+                      },
+                    },
+                  })}
+                  className="px-3 py-2 rounded-xl border border-outline-variant/20 text-on-surface-variant text-xs font-bold hover:bg-surface-container-high hover:text-primary transition-colors flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-sm">event_repeat</span>
+                  Reschedule
+                </button>
+
                 <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full shrink-0 ${STATUS_STYLES[r.status] || 'bg-surface-container-highest text-on-surface-variant'}`}>
                   {r.status}
                 </span>
+
+                {/* Delete — removes this entry for both sides */}
+                <button
+                  onClick={() => onDelete(r.id)}
+                  disabled={deletingId === r.id}
+                  title="Delete this appointment"
+                  aria-label="Delete this appointment"
+                  className="p-2 rounded-xl border border-outline-variant/20 text-on-surface-variant hover:bg-error/10 hover:text-error hover:border-error/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center"
+                >
+                  <span className="material-symbols-outlined text-sm">delete</span>
+                </button>
               </div>
             </div>
           ))}

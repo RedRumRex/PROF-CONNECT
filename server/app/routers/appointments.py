@@ -59,11 +59,35 @@ async def create_appointment(payload: AppointmentCreate, authorization: Optional
     if not teacher_rows:
         raise HTTPException(status_code=404, detail="Teacher not found.")
 
+    # A student can book as many sessions with a professor as they like, but
+    # only one live (pending or accepted) request per exact date + time slot.
+    # A declined request frees its slot up again.
+    date_iso = payload.appointment_date.isoformat()
+    time_iso = payload.appointment_time.isoformat()
+    same_slot = (
+        supabase.table("appointment")
+        .select("appointment_id,appointment_time,status")
+        .eq("student_id", student_id)
+        .eq("teacher_id", payload.teacher_id)
+        .eq("appointment_date", date_iso)
+        .execute()
+        .data
+    )
+    for existing in same_slot:
+        # Supabase returns time as "HH:MM:SS"; compare on HH:MM:SS so
+        # "11:00" and "11:00:00" count as the same slot.
+        existing_time = str(existing.get("appointment_time") or "")
+        if existing_time[:5] == time_iso[:5] and existing.get("status") is not False:
+            raise HTTPException(
+                status_code=409,
+                detail="You already have a request for this professor at that date and time.",
+            )
+
     row = {
         "student_id": student_id,
         "teacher_id": payload.teacher_id,
-        "appointment_date": payload.appointment_date.isoformat(),
-        "appointment_time": payload.appointment_time.isoformat(),
+        "appointment_date": date_iso,
+        "appointment_time": time_iso,
         "status": None,
     }
     inserted = supabase.table("appointment").insert(row).execute().data
@@ -246,3 +270,28 @@ async def respond_to_appointment(
         pass
 
     return result
+
+
+# ── Delete ───────────────────────────────────────────────────────────────
+# Removes an appointment entry outright. Either side of the booking can do
+# it — the student who requested it or the teacher it was addressed to —
+# and it disappears for both, which also frees the slot up again.
+
+@router.delete("/{appointment_id}")
+def delete_appointment(appointment_id: int, authorization: Optional[str] = Header(default=None)):
+    _require_db()
+    claims = require_claims(authorization)
+    role = claims.get("role")
+    if role not in ("student", "teacher"):
+        raise HTTPException(status_code=403, detail="Unknown role.")
+    subject = int(claims["sub"])
+
+    rows = supabase.table("appointment").select("*").eq("appointment_id", appointment_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Appointment not found.")
+    owner_col = "student_id" if role == "student" else "teacher_id"
+    if rows[0][owner_col] != subject:
+        raise HTTPException(status_code=403, detail="This appointment does not belong to you.")
+
+    supabase.table("appointment").delete().eq("appointment_id", appointment_id).execute()
+    return {"ok": True}

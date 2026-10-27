@@ -67,10 +67,12 @@ export default function Appointment() {
   const [loading,   setLoading]   = useState(true)
   const [loadError, setLoadError] = useState('')
 
-  // The most recent request this student has already sent this teacher, if
-  // any — real status (pending/accepted/declined) from the appointment
-  // table, not a locally-faked "Booked!" state.
-  const [existingRequest, setExistingRequest] = useState(null)
+  // Every request this student has already sent this teacher — real status
+  // (pending/accepted/declined) from the appointment table, not a
+  // locally-faked "Booked!" state. A student can hold many sessions with the
+  // same professor; only the exact date + time slot of a pending/accepted
+  // request is frozen (see bookingForSlot below).
+  const [myRequests, setMyRequests] = useState([])
   const [submitting,      setSubmitting]      = useState(false)
   const [submitError,     setSubmitError]     = useState('')
 
@@ -96,12 +98,15 @@ export default function Appointment() {
       .catch((err) => setLoadError(err.message || 'Professor not found.'))
       .finally(() => setLoading(false))
 
+    // Clear the previous professor's requests straight away, so a stale
+    // pending/accepted state can't leak onto this professor's page.
+    setMyRequests([])
+
     const token = getToken()
     if (token) {
       fetchMyAppointmentsAsStudent(token)
         .then((rows) => {
-          const mine = rows.find((r) => String(r.teacher_id) === String(id))
-          if (mine) setExistingRequest(mine)
+          setMyRequests(rows.filter((r) => String(r.teacher_id) === String(id)))
         })
         .catch(() => {
           // Non-fatal — the student can still send a new request.
@@ -124,7 +129,28 @@ export default function Appointment() {
   }, [id])
 
   const prof = teacher ?? { name: 'Professor', designation: '', avatar: '' }
-  const requestStatus = existingRequest?.status_label ?? null // 'pending' | 'accepted' | 'declined' | null
+
+  // The live (pending or accepted) request this student already has for the
+  // exact date + time slot given, or null. A declined request frees its slot
+  // up again, so it never counts.
+  const bookingForSlot = (isoDate, slot) => {
+    const start = slotStartTo24h(slot.time).slice(0, 5) // "HH:MM"
+    return myRequests.find(
+      (r) =>
+        r.appointment_date === isoDate &&
+        String(r.appointment_time || '').slice(0, 5) === start &&
+        (r.status_label === 'pending' || r.status_label === 'accepted')
+    ) ?? null
+  }
+
+  const selectedIsoDate    = toIsoDate(year, month, selectedDate)
+  const selectedBooking    = selectedSlot ? bookingForSlot(selectedIsoDate, selectedSlot) : null
+  const selectedSlotStatus = selectedBooking?.status_label ?? null // 'pending' | 'accepted' | null
+
+  // Live requests with this professor, soonest first — shown as a summary.
+  const activeRequests = myRequests
+    .filter((r) => r.status_label === 'pending' || r.status_label === 'accepted')
+    .sort((a, b) => `${a.appointment_date}T${a.appointment_time}`.localeCompare(`${b.appointment_date}T${b.appointment_time}`))
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -176,7 +202,7 @@ export default function Appointment() {
   // session "booked" — the teacher has to accept it from their Dashboard
   // before it's an actual confirmed session.
   const confirmBooking = async () => {
-    if (!selectedSlot || submitting) return
+    if (!selectedSlot || submitting || selectedBooking) return
     const token = getToken()
     if (!token) { navigate('/login'); return }
 
@@ -185,10 +211,11 @@ export default function Appointment() {
     try {
       const result = await createAppointment({
         teacherId: Number(id),
-        date: toIsoDate(year, month, selectedDate),
+        date: selectedIsoDate,
         time: slotStartTo24h(selectedSlot.time),
       }, token)
-      setExistingRequest(result)
+      setMyRequests((prev) => [...prev, result])
+      setSelectedSlot(null)
       setMessages(prev => [...prev, {
         id:     Date.now(),
         from:   'system',
@@ -258,47 +285,33 @@ export default function Appointment() {
           </div>
         </div>
 
-        {/* ── REQUEST STATUS BANNER ────────────────── */}
-        {requestStatus === 'accepted' && (
-          <div className="mb-8 p-5 rounded-2xl bg-tertiary-container/20 border border-tertiary/20 flex items-center gap-4">
-            <span className="material-symbols-outlined text-tertiary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
-              check_circle
-            </span>
-            <div>
-              <p className="font-headline font-bold text-on-surface">Session Confirmed!</p>
-              <p className="text-sm text-on-surface-variant">
-                {existingRequest.appointment_date} · {existingRequest.appointment_time} with {prof.name}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate('/home#explore')}
-              className="ml-auto btn-primary px-5 py-2 text-sm"
-            >
-              Browse More
-            </button>
-          </div>
-        )}
-
-        {requestStatus === 'pending' && (
-          <div className="mb-8 p-5 rounded-2xl bg-surface-container-high border border-outline-variant/20 flex items-center gap-4">
-            <span className="material-symbols-outlined text-primary text-3xl">hourglass_top</span>
-            <div>
-              <p className="font-headline font-bold text-on-surface">Request Sent — Awaiting Response</p>
-              <p className="text-sm text-on-surface-variant">
-                {existingRequest.appointment_date} · {existingRequest.appointment_time}. {prof.name} hasn't responded yet.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {requestStatus === 'declined' && (
-          <div className="mb-8 p-5 rounded-2xl bg-error-container/10 border border-error/20 flex items-center gap-4">
-            <span className="material-symbols-outlined text-error text-3xl">cancel</span>
-            <div>
-              <p className="font-headline font-bold text-on-surface">Previous Request Declined</p>
-              <p className="text-sm text-on-surface-variant">
-                {prof.name} declined your request for {existingRequest.appointment_date} · {existingRequest.appointment_time}. You can send a new request below.
-              </p>
+        {/* ── YOUR SESSIONS WITH THIS PROFESSOR ────────
+            A student can hold several sessions with one professor — each
+            pending/accepted request freezes only its own date + time slot. */}
+        {activeRequests.length > 0 && (
+          <div className="mb-8 p-5 rounded-2xl bg-surface-container-high border border-outline-variant/20">
+            <p className="font-headline font-bold text-on-surface mb-3">
+              Your sessions with {prof.name}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {activeRequests.map((r) => (
+                <span
+                  key={r.appointment_id}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${
+                    r.status_label === 'accepted'
+                      ? 'bg-tertiary/10 text-tertiary border-tertiary/20'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[14px]">
+                    {r.status_label === 'accepted' ? 'check_circle' : 'hourglass_top'}
+                  </span>
+                  {r.appointment_date} · {String(r.appointment_time || '').slice(0, 5)}
+                  <span className="uppercase tracking-widest text-[9px] opacity-80">
+                    {r.status_label === 'accepted' ? 'Confirmed' : 'Awaiting response'}
+                  </span>
+                </span>
+              ))}
             </div>
           </div>
         )}
@@ -384,26 +397,44 @@ export default function Appointment() {
               <div className="space-y-2">
                 {SLOT_OPTIONS.map((slot) => {
                   const isSelected = selectedSlot?.time === slot.time
+                  // Only this exact date + time is frozen if it already has a
+                  // pending/accepted request — every other slot stays open.
+                  const booked = bookingForSlot(selectedIsoDate, slot)
+                  const bookedLabel = booked
+                    ? (booked.status_label === 'accepted' ? 'Confirmed' : 'Requested')
+                    : null
                   return (
                     <button
                       key={slot.time}
+                      disabled={Boolean(booked)}
                       onClick={() => setSelectedSlot(isSelected ? null : slot)}
                       className={`w-full text-left p-4 rounded-2xl flex justify-between items-center transition-all ${
-                        isSelected
-                          ? 'bg-surface-container-high border-2 border-primary shadow-lg'
-                          : 'bg-surface-container-low border border-outline-variant/10 hover:bg-surface-container-high'
+                        booked
+                          ? 'bg-surface-container-lowest/40 border border-outline-variant/10 opacity-60 cursor-not-allowed'
+                          : isSelected
+                            ? 'bg-surface-container-high border-2 border-primary shadow-lg'
+                            : 'bg-surface-container-low border border-outline-variant/10 hover:bg-surface-container-high'
                       }`}
                     >
                       <div>
                         <p className="text-on-surface font-bold text-sm">{slot.time}</p>
                         <p className="text-on-surface-variant text-xs">{slot.label}</p>
                       </div>
-                      <span
-                        className="material-symbols-outlined text-primary"
-                        style={isSelected ? { fontVariationSettings: "'FILL' 1" } : { opacity: 0.3 }}
-                      >
-                        {isSelected ? 'check_circle' : 'add_circle'}
-                      </span>
+                      {booked ? (
+                        <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-tertiary">
+                          <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>
+                            {booked.status_label === 'accepted' ? 'check_circle' : 'hourglass_top'}
+                          </span>
+                          {bookedLabel}
+                        </span>
+                      ) : (
+                        <span
+                          className="material-symbols-outlined text-primary"
+                          style={isSelected ? { fontVariationSettings: "'FILL' 1" } : { opacity: 0.3 }}
+                        >
+                          {isSelected ? 'check_circle' : 'add_circle'}
+                        </span>
+                      )}
                     </button>
                   )
                 })}
@@ -525,19 +556,19 @@ export default function Appointment() {
 
               <button
                 onClick={confirmBooking}
-                disabled={!selectedSlot || submitting || requestStatus === 'pending' || requestStatus === 'accepted'}
+                disabled={!selectedSlot || submitting || selectedSlotStatus}
                 className={`flex items-center justify-center gap-3 h-16 rounded-2xl font-headline font-extrabold tracking-tight transition-all ${
-                  selectedSlot && !submitting && requestStatus !== 'pending' && requestStatus !== 'accepted'
+                  selectedSlot && !submitting && !selectedSlotStatus
                     ? 'btn-primary'
                     : 'bg-surface-container border border-outline-variant/10 text-on-surface-variant/30 cursor-not-allowed'
                 }`}
               >
-                {requestStatus === 'accepted' ? (
+                {selectedSlotStatus === 'accepted' ? (
                   <>
                     <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
                     Confirmed
                   </>
-                ) : requestStatus === 'pending' ? (
+                ) : selectedSlotStatus === 'pending' ? (
                   <>
                     <span className="material-symbols-outlined">hourglass_top</span>
                     Awaiting Response

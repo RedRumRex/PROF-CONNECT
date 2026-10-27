@@ -64,3 +64,15 @@ export async function markConversationRead(otherId, token) {
   })
   return handleResponse(res)
 }
+
+// DELETE /api/messages/thread?student_id=&teacher_id= — "Clear history":
+// deletes every message in the thread. The thread is shared, so it is
+// cleared for both participants.
+export async function clearThread(studentId, teacherId, token) {
+  const params = new URLSearchParams({ student_id: studentId, teacher_id: teacherId })
+  const res = await fetch(`${API_BASE_URL}/api/messages/thread?${params}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return handleResponse(res)
+}

@@ -4,12 +4,15 @@ import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
 import { getMe } from '../api/auth'
-import { fetchAppointmentsForTeacher, respondToAppointment } from '../api/appointments'
+import { fetchAppointmentsForTeacher, respondToAppointment, deleteAppointment } from '../api/appointments'
 import { fetchThread, sendMessage as postMessage } from '../api/messages'
 import { setMyAvailability } from '../api/availability'
 import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
 import { mapTeacherProfile } from '../lib/profile'
 import useLiveStatus from '../hooks/useLiveStatus'
+
+// Pre-filled (not auto-sent) in the chat box when the professor hits "Reschedule".
+const RESCHEDULE_MESSAGE = 'Can we reschedule the meeting?'
 
 // Maps a row from GET /api/appointments/teacher (appointment + joined
 // student name/branch/year) into the shape this page renders.
@@ -53,6 +56,7 @@ export default function Dashboard() {
   const [requests,        setRequests]        = useState([])
   const [requestsError,   setRequestsError]   = useState('')
   const [respondingId,    setRespondingId]    = useState(null)
+  const [deletingId,      setDeletingId]      = useState(null)
 
   // ── "Available in Room" toggle ──────────────────────────────────────
   // Professor-only: pushes this teacher's real room availability over the
@@ -95,11 +99,12 @@ export default function Dashboard() {
       .catch((err) => setRequestsError(err.message || 'Could not load appointment requests.'))
   }, [])
 
-  const openChat = (request) => {
+  const openChat = (request, draft = '') => {
     const token = getToken()
     if (!token) return
     setChatWith(request)
     setChatMessages([])
+    setChatInput(draft) // e.g. the "Reschedule" message, typed in but not sent
     setChatError('')
     setChatLoading(true)
     const teacherId = getProfile()?.teacher_id
@@ -146,6 +151,22 @@ export default function Dashboard() {
       setRequestsError(err.message || 'Could not update this request. Please try again.')
     } finally {
       setRespondingId(null)
+    }
+  }
+
+  const deleteRequest = async (id) => {
+    const token = getToken()
+    if (!token || deletingId) return
+    if (!window.confirm('Delete this appointment request? This removes it for the student too.')) return
+    setDeletingId(id)
+    setRequestsError('')
+    try {
+      await deleteAppointment(id, token)
+      setRequests(prev => prev.filter(r => r.id !== id))
+    } catch (err) {
+      setRequestsError(err.message || 'Could not delete this request. Please try again.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -252,6 +273,14 @@ export default function Dashboard() {
                     Message
                   </button>
 
+                  <button
+                    onClick={() => openChat(r, RESCHEDULE_MESSAGE)}
+                    className="px-3 py-2 rounded-xl border border-outline-variant/20 text-on-surface-variant text-xs font-bold hover:bg-surface-container-high hover:text-primary transition-colors flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-sm">event_repeat</span>
+                    Reschedule
+                  </button>
+
                   {r.status === 'pending' ? (
                     <>
                       <button
@@ -296,6 +325,17 @@ export default function Dashboard() {
                       </span>
                     </>
                   )}
+
+                  {/* Delete — removes this entry for both sides */}
+                  <button
+                    onClick={() => deleteRequest(r.id)}
+                    disabled={deletingId === r.id}
+                    title="Delete this appointment"
+                    aria-label="Delete this appointment"
+                    className="p-2 rounded-xl border border-outline-variant/20 text-on-surface-variant hover:bg-error/10 hover:text-error hover:border-error/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center"
+                  >
+                    <span className="material-symbols-outlined text-sm">delete</span>
+                  </button>
                 </div>
               </div>
             ))}
