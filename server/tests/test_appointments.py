@@ -209,3 +209,15 @@ def test_deleting_frees_the_slot_for_rebooking(fake_db, make_token):
     payload = appointments.AppointmentCreate(teacher_id=1, appointment_date="2026-09-10", appointment_time="10:00:00")
     out = asyncio.run(appointments.create_appointment(payload, authorization=bearer(make_token("student", 101))))
     assert out["status_label"] == "pending"
+
+
+def test_accepting_does_not_create_a_third_party_meeting_room(fake_db, make_token):
+    appointments = load_appointments_router()
+    fake_db.tables["appointment"] = [
+        {"appointment_id": 1, "student_id": 101, "teacher_id": 1, "appointment_date": "2026-09-10", "appointment_time": "10:00:00", "status": None},
+    ]
+    fake_db.tables["teacher"] = [{"teacher_id": 1, "name": "Prof"}]
+    respond = appointments.AppointmentRespond(status=True)
+    result = asyncio.run(appointments.respond_to_appointment(1, respond, authorization=bearer(make_token("teacher", 1))))
+    assert result["status_label"] == "accepted"
+    assert "meeting_room_id" not in result

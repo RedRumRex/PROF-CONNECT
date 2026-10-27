@@ -11,6 +11,7 @@ import Messages       from './pages/Messages'
 import Timetable      from './pages/Timetable'
 import TimetableHelp  from './pages/TimetableHelp'
 import Settings       from './pages/Settings'
+import Meeting        from './pages/Meeting'
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/timetable"         element={<Timetable />} />
         <Route path="/timetable/help"    element={<TimetableHelp />} />
         <Route path="/settings"          element={<Settings />} />
+        <Route path="/meeting/:meetingId" element={<Meeting />} />
       </Routes>
     </BrowserRouter>
   )

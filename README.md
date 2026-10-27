@@ -238,3 +238,33 @@ The backend logs `[db] Connected to Supabase successfully.` on startup if everyt
 - **`src/pages/Explore.jsx` is dead code** — superseded by the Explore section inside `Home.jsx`, left in place but unrouted.
 - **No automated tests cover the frontend (`src/`) or the Socket.IO layer (`sockets.py`)** — see `server/README.md`'s "Testing" section for what the backend suite (`server/tests/`) covers today (auth, messaging/conversations, appointments, notifications, availability persistence) and how to run it.
 - Very new Python versions (3.14+) have been observed to hit `[SSL: UNEXPECTED_EOF_WHILE_READING]` errors connecting to Supabase due to an OpenSSL 3.x/httpx compatibility gap — upgrading `supabase`/`httpx`/`httpcore`, or running the backend on Python 3.11/3.12, resolves it.
+
+
+## Integrated meeting feature
+
+ProfConnect meetings are linked to accepted appointments and use the existing ProfConnect JWT identity. From **Appointments** (or, for professors, the **Dashboard** request list), select **Join Meeting** / **Start Meeting** on an accepted appointment. The associated student and professor can join with their ProfConnect accounts. The appointment's professor is the meeting host and can create or revoke an invitation link for guests. Invitation links may be protected by an optional passcode.
+
+### Database setup
+
+Apply `db/migrations/20261027_meetings.sql` to the existing Supabase project after the base ProfConnect schema. The migration adds meeting metadata only; camera, microphone, and screen-share media are not stored in Supabase. Invitation tokens are stored as hashes.
+
+### Backend configuration
+
+- Keep `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and `JWT_SECRET` configured on the backend only.
+- Set `CORS_ORIGIN` to the exact frontend origins that should access the API and meeting WebSocket, including the production frontend and local development origin when needed.
+- No third-party (public) STUN/TURN or meeting platform is used. For calls across different networks, run your own coturn server (see `deploy/coturn/README.md`) and set `MEETING_STUN_URLS`, `MEETING_TURN_URLS` and `MEETING_TURN_SECRET` (or `MEETING_TURN_USERNAME` plus `MEETING_TURN_PASSWORD`). With none set, calls only connect between peers that can reach each other directly (same network or same machine).
+- `MEETING_MAX_PARTICIPANTS` defaults to 4.
+- Signalling room state is currently held in backend process memory. Run one backend worker/instance for meetings until signalling state is moved to a shared pub/sub service. Supabase stores durable meeting metadata.
+
+### Deployment and smoke test
+
+The existing backend workflow monitors `server/**` and the frontend workflow monitors `src/**`, so the integrated files trigger the existing deployment workflows when merged to `main`. Apply the SQL migration before enabling meetings in production.
+
+Frontend CI runs `npm run build` and the Playwright meeting browser tests. Backend CI runs the meeting authorization/invitation tests before triggering deployment.
+
+After deployment, verify:
+1. An accepted appointment can create and open its meeting for both appointment participants.
+2. A pending, declined, or unrelated appointment is rejected by the backend.
+3. The professor can create an invitation, a guest can join with the valid link, and a revoked link fails.
+4. Camera, microphone, screen share, chat, leave, and host end work in separate browsers.
+5. A call succeeds with TURN relay between different networks, and existing ProfConnect messaging/notifications remain functional.

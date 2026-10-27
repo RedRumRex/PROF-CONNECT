@@ -10,6 +10,7 @@ import { setMyAvailability } from '../api/availability'
 import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
 import { mapTeacherProfile } from '../lib/profile'
 import useLiveStatus from '../hooks/useLiveStatus'
+import JoinMeetingButton from '../components/JoinMeetingButton'
 
 // Pre-filled (not auto-sent) in the chat box when the professor hits "Reschedule".
 const RESCHEDULE_MESSAGE = 'Can we reschedule the meeting?'
@@ -27,7 +28,6 @@ function mapAppointmentRequest(row) {
     date: row.appointment_date,
     time: row.appointment_time,
     status: row.status_label, // 'pending' | 'accepted' | 'declined'
-    meetingRoomId: row.meeting_room_id || null,
     avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(row.student_id))}&backgroundColor=321817`,
   }
 }
@@ -300,19 +300,14 @@ export default function Dashboard() {
                     </>
                   ) : (
                     <>
-                      {/* Start Meeting button — only visible once the professor has accepted
-                          (meeting_room_id is generated server-side on accept, so this is
-                          the authoritative gate: the button never appears for pending/declined) */}
-                      {r.status === 'accepted' && r.meetingRoomId && (
-                        <a
-                          href={`https://meet.jit.si/${r.meetingRoomId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                      {/* Start Meeting — only for accepted requests. The backend
+                          re-checks that the appointment is accepted and yours. */}
+                      {r.status === 'accepted' && (
+                        <JoinMeetingButton
+                          appointmentId={r.id}
+                          label="Start Meeting"
                           className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold hover:bg-primary/20 transition-colors flex items-center gap-1.5 self-start sm:self-center"
-                        >
-                          <span className="material-symbols-outlined text-sm">videocam</span>
-                          Start Meeting
-                        </a>
+                        />
                       )}
                       <span
                         className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full self-start sm:self-center ${

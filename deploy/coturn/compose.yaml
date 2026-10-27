@@ -1,0 +1,36 @@
+# Self-hosted STUN + TURN for ProfConnect meetings (replaces any public STUN).
+# Linux VPS only (host networking, open UDP ports). Render/Vercel cannot run this.
+# See deploy/coturn/README.md for the full setup.
+services:
+  turn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${MEETING_TURN_SECRET:?Set MEETING_TURN_SECRET}
+      - --realm=${TURN_REALM:?Set TURN_REALM to your TURN hostname}
+      - --external-ip=${TURN_EXTERNAL_IP:?Set your public VPS IPv4 address}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --no-multicast-peers
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=224.0.0.0-255.255.255.255
+      - --denied-peer-ip=::1
+      - --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --user-quota=12
+      - --total-quota=120
+      - --max-bps=1500000
+      - --log-file=stdout

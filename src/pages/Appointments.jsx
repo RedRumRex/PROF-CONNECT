@@ -5,6 +5,7 @@ import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
 import { fetchMyAppointmentsAsStudent, fetchAppointmentsForTeacher, deleteAppointment } from '../api/appointments'
 import { getToken, getRole } from '../lib/auth'
+import JoinMeetingButton from '../components/JoinMeetingButton'
 
 function formatDate(dateStr) {
   if (!dateStr) return '—'
@@ -44,7 +45,6 @@ function mapRow(row, role) {
     time: row.appointment_time,
     status: row.status_label,
     dateTime: toDateTime(row.appointment_date, row.appointment_time),
-    meetingRoomId: row.meeting_room_id || null,
     avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(otherId))}&backgroundColor=${isStudent ? '0a1628' : '321817'}`,
   }
 }
@@ -213,17 +213,12 @@ function AppointmentSection({ title, icon, items, navigate, isStudent, showMeeti
               {/* Right-side controls */}
               <div className="flex items-center gap-2 shrink-0 flex-wrap">
                 {/* Join / Start Meeting — only for accepted appointments in the Upcoming section */}
-                {showMeeting && r.meetingRoomId && (
-                  <a
-                    href={`https://meet.jit.si/${r.meetingRoomId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
+                {showMeeting && r.status === 'accepted' && (
+                  <JoinMeetingButton
+                    appointmentId={r.id}
+                    label={isStudent ? 'Join Meeting' : 'Start Meeting'}
                     className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold hover:bg-primary/20 transition-colors flex items-center gap-1.5"
-                  >
-                    <span className="material-symbols-outlined text-sm">videocam</span>
-                    {isStudent ? 'Join Meeting' : 'Start Meeting'}
-                  </a>
+                  />
                 )}
 
                 {/* Reschedule — opens the chat with this person on the Messages

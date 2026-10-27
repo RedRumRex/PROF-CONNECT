@@ -1,0 +1,36 @@
+name: Test Frontend
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/browser/**"
+      - "playwright.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.*"
+      - "tailwind.config.*"
+      - "postcss.config.*"
+      - ".github/workflows/test-frontend.yml"
+  workflow_dispatch: {}
+
+jobs:
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install app dependencies
+        run: npm ci
+      - name: Install Playwright test runner
+        run: npm install --no-save @playwright/test
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build frontend
+        run: npm run build
+      - name: Run meeting browser tests
+        run: npx playwright test

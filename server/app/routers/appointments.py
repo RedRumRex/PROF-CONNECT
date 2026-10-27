@@ -1,4 +1,3 @@
-import uuid
 from datetime import date as date_type, time as time_type
 from typing import Optional
 
@@ -223,15 +222,10 @@ async def respond_to_appointment(
     if rows[0]["teacher_id"] != teacher_id:
         raise HTTPException(status_code=403, detail="This appointment request does not belong to you.")
 
+    # Meetings are created on demand by the in-app meeting API (routers/
+    # meetings.py) the first time either participant opens an accepted
+    # appointment, so accepting only needs to record the decision.
     update_data: dict = {"status": payload.status}
-
-    # When the teacher accepts, generate a unique Jitsi meeting room ID and
-    # persist it on the row. The frontend will surface a "Join Meeting" button
-    # only when this field is non-null, so declined/pending appointments never
-    # show the button. The room ID is returned in all subsequent list responses.
-    if payload.status:
-        room_id = f"profconnect-{appointment_id}-{uuid.uuid4().hex[:8]}"
-        update_data["meeting_room_id"] = room_id
 
     updated = (
         supabase.table("appointment")

@@ -201,11 +201,10 @@ on conflict (id) do update set
 -- to run standalone against a project with existing appointment rows (they
 -- all default to null = no room assigned yet).
 --
--- When a teacher accepts an appointment request, the backend generates a
--- unique Jitsi meeting room ID (e.g. "profconnect-42-a3f9c1d2") and stores
--- it here. The room ID is returned in all appointment list/get responses;
--- the frontend shows a "Join Meeting" button only when this is non-null
--- (i.e. only for accepted appointments). Declined and pending appointments
--- never get a room ID, so the button never appears for them.
+-- LEGACY / UNUSED: this column used to hold a third-party (Jitsi) room ID.
+-- Meetings now run on ProfConnect's own WebRTC service and are tracked in
+-- the `meeting` table (see db/migrations/20261027_meetings.sql). The column
+-- is kept only so existing databases and old rows stay valid; nothing reads
+-- or writes it any more.
 alter table public.appointment
   add column if not exists meeting_room_id text;
