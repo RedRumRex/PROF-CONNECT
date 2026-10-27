@@ -44,6 +44,7 @@ function mapRow(row, role) {
     time: row.appointment_time,
     status: row.status_label,
     dateTime: toDateTime(row.appointment_date, row.appointment_time),
+    meetingRoomId: row.meeting_room_id || null,
     avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(otherId))}&backgroundColor=${isStudent ? '0a1628' : '321817'}`,
   }
 }
@@ -131,10 +132,10 @@ export default function Appointments() {
         ) : (
           <div className="space-y-10">
             {pending.length > 0 && (
-              <AppointmentSection title="Pending" icon="hourglass_top" items={pending} navigate={navigate} isStudent={isStudent} />
+              <AppointmentSection title="Pending" icon="hourglass_top" items={pending} navigate={navigate} isStudent={isStudent} showMeeting={false} />
             )}
-            <AppointmentSection title="Upcoming" icon="event_upcoming" items={upcoming} navigate={navigate} isStudent={isStudent} emptyText="No upcoming sessions." />
-            <AppointmentSection title="Past" icon="history" items={past} navigate={navigate} isStudent={isStudent} emptyText="No past sessions yet." />
+            <AppointmentSection title="Upcoming" icon="event_upcoming" items={upcoming} navigate={navigate} isStudent={isStudent} showMeeting emptyText="No upcoming sessions." />
+            <AppointmentSection title="Past" icon="history" items={past} navigate={navigate} isStudent={isStudent} showMeeting={false} emptyText="No past sessions yet." />
           </div>
         )}
       </main>
@@ -144,7 +145,7 @@ export default function Appointments() {
   )
 }
 
-function AppointmentSection({ title, icon, items, navigate, isStudent, emptyText }) {
+function AppointmentSection({ title, icon, items, navigate, isStudent, showMeeting, emptyText }) {
   if (items.length === 0 && !emptyText) return null
   return (
     <section>
@@ -161,22 +162,49 @@ function AppointmentSection({ title, icon, items, navigate, isStudent, emptyText
           {items.map((r) => (
             <div
               key={r.id}
-              onClick={isStudent ? () => navigate(`/profile/${r.otherId}`) : undefined}
-              className={`glass-card p-4 rounded-2xl flex items-center gap-4 transition-all ${
-                isStudent ? 'cursor-pointer hover:border-primary/30' : ''
-              }`}
+              className="glass-card p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-4 transition-all"
             >
-              <img src={r.avatar} alt={r.name} className="w-12 h-12 rounded-xl shrink-0 object-cover" />
-              <div className="flex-1 min-w-0">
+              {/* Avatar — clicking it navigates to the professor profile (student only) */}
+              <img
+                src={r.avatar}
+                alt={r.name}
+                onClick={isStudent ? () => navigate(`/profile/${r.otherId}`) : undefined}
+                className={`w-12 h-12 rounded-xl shrink-0 object-cover ${isStudent ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+              />
+
+              {/* Info */}
+              <div
+                className="flex-1 min-w-0"
+                onClick={isStudent ? () => navigate(`/profile/${r.otherId}`) : undefined}
+                style={isStudent ? { cursor: 'pointer' } : {}}
+              >
                 <p className="text-sm font-bold text-on-surface truncate">{r.name}</p>
                 <p className="text-xs text-on-surface-variant truncate">{r.sub || '—'}</p>
                 <p className="text-xs text-on-surface-variant opacity-70 mt-0.5">
                   {formatDate(r.date)} · {formatTime(r.time)}
                 </p>
               </div>
-              <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full shrink-0 ${STATUS_STYLES[r.status] || 'bg-surface-container-highest text-on-surface-variant'}`}>
-                {r.status}
-              </span>
+
+              {/* Right-side controls */}
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {/* Join / Start Meeting — only for accepted appointments in the Upcoming section */}
+                {showMeeting && r.meetingRoomId && (
+                  <a
+                    href={`https://meet.jit.si/${r.meetingRoomId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold hover:bg-primary/20 transition-colors flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-sm">videocam</span>
+                    {isStudent ? 'Join Meeting' : 'Start Meeting'}
+                  </a>
+                )}
+
+                <span className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full shrink-0 ${STATUS_STYLES[r.status] || 'bg-surface-container-highest text-on-surface-variant'}`}>
+                  {r.status}
+                </span>
+              </div>
             </div>
           ))}
         </div>

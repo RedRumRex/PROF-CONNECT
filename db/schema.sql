@@ -195,3 +195,17 @@ on conflict (id) do update set
   public = excluded.public,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
+-- ── meeting room ─────────────────────────────────────────────────────────
+-- Added later — idempotent `alter table ... add column if not exists`, safe
+-- to run standalone against a project with existing appointment rows (they
+-- all default to null = no room assigned yet).
+--
+-- When a teacher accepts an appointment request, the backend generates a
+-- unique Jitsi meeting room ID (e.g. "profconnect-42-a3f9c1d2") and stores
+-- it here. The room ID is returned in all appointment list/get responses;
+-- the frontend shows a "Join Meeting" button only when this is non-null
+-- (i.e. only for accepted appointments). Declined and pending appointments
+-- never get a room ID, so the button never appears for them.
+alter table public.appointment
+  add column if not exists meeting_room_id text;

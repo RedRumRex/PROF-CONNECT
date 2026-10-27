@@ -1,3 +1,4 @@
+import uuid
 from datetime import date as date_type, time as time_type
 from typing import Optional
 
@@ -198,14 +199,24 @@ async def respond_to_appointment(
     if rows[0]["teacher_id"] != teacher_id:
         raise HTTPException(status_code=403, detail="This appointment request does not belong to you.")
 
+    update_data: dict = {"status": payload.status}
+
+    # When the teacher accepts, generate a unique Jitsi meeting room ID and
+    # persist it on the row. The frontend will surface a "Join Meeting" button
+    # only when this field is non-null, so declined/pending appointments never
+    # show the button. The room ID is returned in all subsequent list responses.
+    if payload.status:
+        room_id = f"profconnect-{appointment_id}-{uuid.uuid4().hex[:8]}"
+        update_data["meeting_room_id"] = room_id
+
     updated = (
         supabase.table("appointment")
-        .update({"status": payload.status})
+        .update(update_data)
         .eq("appointment_id", appointment_id)
         .execute()
         .data
     )
-    result = updated[0] if updated else rows[0]
+    result = updated[0] if updated else {**rows[0], **update_data}
     result["status_label"] = _status_label(result.get("status"))
 
     # Best-effort — a notification hiccup should never fail the response.
@@ -213,12 +224,22 @@ async def respond_to_appointment(
         teacher_rows = supabase.table("teacher").select("name").eq("teacher_id", teacher_id).execute().data
         teacher_name = teacher_rows[0]["name"] if teacher_rows else "The professor"
         action = "accepted" if payload.status else "declined"
+        if payload.status:
+            notif_body = (
+                f"{teacher_name} accepted your session on {result.get('appointment_date')} "
+                f"at {result.get('appointment_time')}. Your meeting room is ready — go to Appointments to join."
+            )
+        else:
+            notif_body = (
+                f"{teacher_name} declined your request for {result.get('appointment_date')} "
+                f"at {result.get('appointment_time')}."
+            )
         await notify(
             recipient_role="student",
             recipient_id=result["student_id"],
             type=f"appointment_{action}",
             title=f"Appointment {action}",
-            body=f"{teacher_name} {action} your request for {result.get('appointment_date')} at {result.get('appointment_time')}.",
+            body=notif_body,
             link="/appointments",
         )
     except Exception:  # noqa: BLE001
