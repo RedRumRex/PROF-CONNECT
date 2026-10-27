@@ -24,6 +24,7 @@ function mapAppointmentRequest(row) {
     date: row.appointment_date,
     time: row.appointment_time,
     status: row.status_label, // 'pending' | 'accepted' | 'declined'
+    meetingRoomId: row.meeting_room_id || null,
     avatar: `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(String(row.student_id))}&backgroundColor=321817`,
   }
 }
@@ -269,15 +270,31 @@ export default function Dashboard() {
                       </button>
                     </>
                   ) : (
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full self-start sm:self-center ${
-                        r.status === 'accepted'
-                          ? 'bg-tertiary/10 text-tertiary'
-                          : 'bg-error/10 text-error'
-                      }`}
-                    >
-                      {r.status}
-                    </span>
+                    <>
+                      {/* Start Meeting button — only visible once the professor has accepted
+                          (meeting_room_id is generated server-side on accept, so this is
+                          the authoritative gate: the button never appears for pending/declined) */}
+                      {r.status === 'accepted' && r.meetingRoomId && (
+                        <a
+                          href={`https://meet.jit.si/${r.meetingRoomId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-bold hover:bg-primary/20 transition-colors flex items-center gap-1.5 self-start sm:self-center"
+                        >
+                          <span className="material-symbols-outlined text-sm">videocam</span>
+                          Start Meeting
+                        </a>
+                      )}
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full self-start sm:self-center ${
+                          r.status === 'accepted'
+                            ? 'bg-tertiary/10 text-tertiary'
+                            : 'bg-error/10 text-error'
+                        }`}
+                      >
+                        {r.status}
+                      </span>
+                    </>
                   )}
                 </div>
               </div>
