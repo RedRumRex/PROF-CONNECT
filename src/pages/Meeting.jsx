@@ -164,6 +164,11 @@ export default function Meeting() {
     try {
       const ticket = await joinMeeting(meetingId, { name: name.trim() || 'Guest', passcode, inviteToken })
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+      if (leavingRef.current) {
+        // Left (or navigated away) while the permission prompt was open.
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
       localRef.current = stream
       setLocalStream(stream)
       setHost(Boolean(ticket.host))
@@ -179,6 +184,10 @@ export default function Meeting() {
       socket.onerror = () => setError('Could not connect to the meeting server. Check your connection and try again.')
       socket.onclose = () => {
         if (!leavingRef.current) {
+          // The call cannot continue without the connection, so release the
+          // camera and microphone now instead of leaving them live behind the
+          // "Connection lost" screen. Rejoining asks for them again.
+          closeMedia()
           setPhase(current => ['connected', 'joining'].includes(current) ? 'disconnected' : current)
           setNotice('Connection closed. Leave and rejoin to reconnect.')
         }

@@ -208,6 +208,28 @@ def create_or_get_appointment_meeting(
     )
     if existing:
         row = existing[0]
+        if row.get("status") == "ended":
+            # Only the appointment's professor can start the meeting again; a
+            # student cannot reopen a meeting the professor ended.
+            is_host = (
+                claims.get("role") == "teacher"
+                and int(claims.get("sub", -1)) == int(row["host_teacher_id"])
+            )
+            if not is_host:
+                raise HTTPException(
+                    status_code=410,
+                    detail="This meeting has ended. Ask your professor to start it again.",
+                )
+            reopened = {
+                "status": "available",
+                "ended_at": None,
+                # Old guest links die with the old session.
+                "invite_enabled": False,
+                "invite_token_hash": None,
+                "passcode_hash": "",
+            }
+            supabase.table("meeting").update(reopened).eq("meeting_id", row["meeting_id"]).execute()
+            row = {**row, **reopened}
     else:
         payload = {
             "meeting_id": secrets.token_urlsafe(18),
@@ -430,7 +452,14 @@ async def meeting_signal(ws: WebSocket, meeting_id: str):
                 if not person["host"]:
                     await _emit(person, {"type": "error", "detail": "Only the host can end the meeting."})
                 else:
-                    supabase.table("meeting").update({"status": "ended", "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}).eq("meeting_id", meeting_id).execute()
+                    supabase.table("meeting").update({
+                        "status": "ended",
+                        "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        # Guest invitations stop working once the session ends.
+                        "invite_enabled": False,
+                        "invite_token_hash": None,
+                        "passcode_hash": "",
+                    }).eq("meeting_id", meeting_id).execute()
                     await _broadcast(meeting_id, {"type": "ended"})
                     for peer in list(current.values()):
                         try:

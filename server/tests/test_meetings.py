@@ -201,3 +201,29 @@ def test_fixed_turn_credentials_mode(monkeypatch):
     assert meetings._ice_servers("x") == [
         {"urls": ["turn:relay.example.com:3478"], "username": "u", "credential": "p"}
     ]
+
+
+# ── Restarting an ended meeting ──────────────────────────────────────────
+
+def test_host_can_restart_an_ended_meeting_but_students_cannot(fake_db):
+    created = meetings.create_or_get_appointment_meeting(7, "Bearer student")
+    fake_db.tables["meeting"][0].update(
+        status="ended", ended_at="2026-01-01T00:00:00Z",
+        invite_enabled=True, invite_token_hash="h", passcode_hash="x:y",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        meetings.create_or_get_appointment_meeting(7, "Bearer student")
+    assert exc.value.status_code == 410
+    assert fake_db.tables["meeting"][0]["status"] == "ended"
+
+    again = meetings.create_or_get_appointment_meeting(7, "Bearer teacher")
+    assert again["meeting_id"] == created["meeting_id"]
+    assert again["status"] == "available"
+    assert again["invite_enabled"] is False
+    row = fake_db.tables["meeting"][0]
+    assert row["status"] == "available" and row["ended_at"] is None
+    assert row["invite_token_hash"] is None and row["passcode_hash"] == ""
+
+    # Once restarted, the student can get back in.
+    assert meetings.create_or_get_appointment_meeting(7, "Bearer student")["status"] == "available"
