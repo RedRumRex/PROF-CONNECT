@@ -26,3 +26,13 @@ export async function uploadProfilePhoto(file, token) {
   })
   return handleResponse(res)
 }
+
+// DELETE /api/profile/photo — removes the signed-in user's profile photo
+// and clears it from their record. -> { ok: true }
+export async function removeProfilePhoto(token) {
+  const res = await fetch(`${API_BASE_URL}/api/profile/photo`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return handleResponse(res)
+}

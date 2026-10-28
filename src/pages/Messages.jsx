@@ -56,12 +56,11 @@ function mapThreadMessage(row, myRole) {
 // Mirrors server/app/routers/messages.py's _other_id_from_link — a
 // message-type notification's link doubles as a pointer to which thread
 // it's about, so a live "notification:new" push can be matched against
-// the conversation currently open on this page.
+// the conversation currently open on this page. Same shape for both
+// roles: /messages?with={otherId}.
 function otherIdFromLink(role, link) {
   if (!link) return null
-  const match = role === 'student'
-    ? link.match(/^\/appointment\/(\d+)$/)
-    : link.match(/^\/dashboard\?student_id=(\d+)$/)
+  const match = link.match(/^\/messages\?with=(\d+)$/)
   return match ? Number(match[1]) : null
 }
 
@@ -209,6 +208,22 @@ export default function Messages() {
     navigate('/messages', { replace: true, state: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rescheduleTarget, listLoading])
+
+  // ── Arrival via a "new message" notification: the link is
+  // /messages?with={otherId} (see server/app/routers/messages.py's
+  // _thread_notify_link) — open that conversation once the list has
+  // loaded, same idea as the reschedule arrival above, just with nothing
+  // pre-filled to send.
+  const withApplied = useRef(false)
+  useEffect(() => {
+    if (withApplied.current || listLoading) return
+    const withId = new URLSearchParams(location.search).get('with')
+    if (!withId) return
+    withApplied.current = true
+    selectConvo(Number(withId))
+    navigate('/messages', { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, listLoading])
 
   const sendMessage = async () => {
     const body = input.trim()

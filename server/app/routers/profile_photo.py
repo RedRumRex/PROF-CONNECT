@@ -119,3 +119,27 @@ async def upload_profile_photo(
         raise HTTPException(status_code=500, detail=f"Photo was uploaded but could not be saved to your profile: {msg}")
 
     return {"avatar_url": avatar_url}
+
+
+# DELETE /api/profile/photo — remove the signed-in user's profile photo.
+# Deletes the file from Storage (best-effort — a missing file shouldn't
+# block clearing the column) and clears avatar_url so the UI falls back to
+# the generated placeholder avatar.
+@router.delete("/photo")
+def remove_profile_photo(authorization: Optional[str] = Header(default=None)):
+    _require_db()
+    role, owner_id = _identity(authorization)
+    path = f"{role}/{owner_id}"
+
+    try:
+        supabase.storage.from_(BUCKET).remove([path])
+    except Exception:  # noqa: BLE001
+        pass  # Nothing to remove, or the bucket is unreachable — not fatal.
+
+    table, key = _table_and_key(role)
+    try:
+        supabase.table(table).update({"avatar_url": None}).eq(key, owner_id).execute()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Could not remove your profile photo: {e}")
+
+    return {"ok": True}

@@ -120,3 +120,29 @@ def mark_all_read(authorization: Optional[str] = Header(default=None)):
         "update your notifications",
     )
     return {"ok": True}
+
+
+# DELETE /api/notifications — "Clear all" in the bell dropdown. Permanently
+# removes every notification the caller has, read or unread; there's no
+# undo, same as the "Delete Account" pattern elsewhere in this app, but
+# this only clears notification history, not any real data (bookings,
+# messages, the account itself) — so it's a lighter-weight action with no
+# confirmation step on the frontend, matching "Mark all read" right next
+# to it.
+@router.delete("")
+def delete_all_notifications(authorization: Optional[str] = Header(default=None)):
+    _require_db()
+    role, recipient_id = _identity(authorization)
+
+    _run_query(
+        lambda: (
+            supabase.table("notification")
+            .delete()
+            .eq("recipient_role", role)
+            .eq("recipient_id", recipient_id)
+            .execute()
+            .data
+        ),
+        "delete your notifications",
+    )
+    return {"ok": True}

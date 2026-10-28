@@ -5,10 +5,12 @@ import useNotifications from '../hooks/useNotifications'
 
 const NAV_LINKS = [
   { to: '/home',                                          label: 'Home'     },
-  { to: '/dashboard', pathKey: '/dashboard', teacherOnly: true, label: 'Dashboard' },
-  { to: '/home#explore',                                  label: 'Explore'  },
+  { to: '/profile', pathKey: '/profile',                  label: 'Profile'  },
+  { to: '/dashboard', pathKey: '/dashboard', teacherOnly: true, label: 'Appointments' },
   { to: '/messages', pathKey: '/messages',                label: 'Messages' },
-  { to: '/timetable', pathKey: '/timetable',               label: 'Timetable' },
+  // Timetable moved into the Profile page — no longer a standalone nav
+  // link (it's still reachable at /timetable directly if anything still
+  // links there, just not surfaced here anymore).
   { to: 'https://www.thapar.edu/students/pages/webkiosk', label: 'Webkiosk', external: true },
   { to: 'https://lms.thapar.edu/moodle/login/index.php', label: 'LMS', external: true }
 ]
@@ -44,7 +46,7 @@ export default function Navbar() {
   }
 
   const [showNotifications, setShowNotifications] = useState(false)
-  const { notifications, unreadCount, loading, markRead, markAllRead } = useNotifications()
+  const { notifications, unreadCount, loading, markRead, markAllRead, deleteAll } = useNotifications()
 
   const handleClickNotification = (n) => {
     markRead(n.notification_id)
@@ -110,11 +112,22 @@ export default function Navbar() {
               <div className="absolute right-0 top-full mt-2 w-80 bg-surface-container-high border border-outline-variant/20 rounded-2xl shadow-2xl z-30 overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-3 border-b border-outline-variant/10">
                   <h4 className="font-headline font-bold text-sm text-on-surface">Notifications</h4>
-                  {unreadCount > 0 && (
-                    <button onClick={markAllRead} className="text-[10px] text-primary font-bold uppercase tracking-wider hover:opacity-80">
-                      Mark all read
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {unreadCount > 0 && (
+                      <button onClick={markAllRead} className="text-[10px] text-primary font-bold uppercase tracking-wider hover:opacity-80">
+                        Mark all read
+                      </button>
+                    )}
+                    {notifications.length > 0 && (
+                      <button
+                        onClick={deleteAll}
+                        title="Delete all notifications"
+                        className="p-1 rounded-full text-stone-400 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-90"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="max-h-96 overflow-y-auto">

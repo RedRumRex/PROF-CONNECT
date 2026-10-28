@@ -3,6 +3,7 @@ import {
   fetchNotifications,
   markNotificationRead,
   markAllNotificationsRead,
+  deleteAllNotifications,
   subscribeToNotifications,
 } from '../api/notifications'
 import { getToken } from '../lib/auth'
@@ -62,5 +63,12 @@ export default function useNotifications() {
     markAllNotificationsRead(token).catch(() => {})
   }, [])
 
-  return { notifications, unreadCount, loading, markRead, markAllRead }
+  const deleteAll = useCallback(() => {
+    const token = getToken()
+    if (!token) return
+    setNotifications([])
+    deleteAllNotifications(token).catch(() => {})
+  }, [])
+
+  return { notifications, unreadCount, loading, markRead, markAllRead, deleteAll }
 }

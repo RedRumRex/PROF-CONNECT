@@ -16,7 +16,7 @@ function ordinalYear(year) {
 // api/profile.js and server/app/routers/profile_photo.py) wins when
 // present; otherwise falls back to a generated placeholder so every user
 // still has *some* avatar before uploading a real photo.
-function avatarFor(row, seed, fallbackBg) {
+export function avatarFor(row, seed, fallbackBg) {
   if (row?.avatar_url) return row.avatar_url
   return `https://api.dicebear.com/9.x/notionists/svg?seed=${encodeURIComponent(seed || 'ProfConnect')}&backgroundColor=${fallbackBg}`
 }

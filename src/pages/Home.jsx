@@ -3,10 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
-import { getMe } from '../api/auth'
 import { fetchTeachers } from '../api/teachers'
-import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
-import { mapStudentProfile, mapTeacherCard } from '../lib/profile'
+import { mapTeacherCard } from '../lib/profile'
 import useLiveStatus from '../hooks/useLiveStatus'
 
 const STATS = [
@@ -59,7 +57,6 @@ export default function Home() {
   const navigate  = useNavigate()
   const location  = useLocation()
   const [search, setSearch] = useState('')
-  const [student, setStudent] = useState(() => mapStudentProfile(getProfile()))
   useScrollReveal()
 
   // Land directly on the Explore section when arriving via a #explore link
@@ -69,19 +66,6 @@ export default function Home() {
       document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   }, [location.hash])
-
-  useEffect(() => {
-    const token = getToken()
-    if (!token) return
-    getMe(token)
-      .then((data) => {
-        persistProfile(data.profile)
-        setStudent(mapStudentProfile(data.profile))
-      })
-      .catch(() => {
-        // Background refresh only — keep showing the cached profile.
-      })
-  }, [])
 
   // ── Explore: real teachers from the DB ──────────
   const [teachers,        setTeachers]        = useState([])
@@ -176,47 +160,6 @@ export default function Home() {
       <div className="min-h-screen flex flex-col relative font-body bg-background">
         <Background />
         <Navbar />
-
-        {/* ── STUDENT PROFILE SUMMARY ─────────────── */}
-        <section className="relative z-10 px-4 md:px-8 pt-8">
-          <div className="max-w-5xl mx-auto glass-panel rounded-2xl p-5 md:p-6 border border-outline-variant/15 shadow-2xl flex flex-col sm:flex-row sm:items-center gap-5">
-            <div className="flex items-center gap-4 flex-1 min-w-0">
-              <img
-                src={student.avatar}
-                alt={student.name}
-                className="w-16 h-16 rounded-2xl border border-white/10 object-cover shrink-0"
-              />
-              <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant opacity-50">
-                  Welcome back
-                </p>
-                <h2 className="font-headline font-bold text-xl text-on-surface truncate">
-                  {student.name}
-                </h2>
-                <p className="text-on-surface-variant text-xs opacity-70 truncate">
-                  {student.rollNo} &middot; {student.branch} &middot; {student.year}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 shrink-0">
-              <button
-                onClick={() => navigate('/appointments')}
-                className="px-5 py-2.5 text-sm rounded-xl border border-outline-variant/20 text-on-surface-variant hover:text-primary hover:bg-surface-container-high transition-colors flex items-center gap-2 shrink-0"
-              >
-                <span className="material-symbols-outlined text-lg">calendar_month</span>
-                Appointments
-              </button>
-              <button
-                onClick={() => navigate('/profile')}
-                className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2 shrink-0"
-              >
-                <span className="material-symbols-outlined text-lg">person</span>
-                View Full Profile
-              </button>
-            </div>
-          </div>
-        </section>
 
         {/* ── HERO ───────────────────────────────── */}
         <main className="flex flex-col items-center justify-center px-4 pt-16 pb-32 relative z-10">

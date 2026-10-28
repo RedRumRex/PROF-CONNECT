@@ -3,13 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
-import { getMe } from '../api/auth'
 import { fetchAppointmentsForTeacher, respondToAppointment, deleteAppointment } from '../api/appointments'
 import { fetchThread, sendMessage as postMessage } from '../api/messages'
-import { setMyAvailability } from '../api/availability'
-import { getToken, getProfile, setProfile as persistProfile } from '../lib/auth'
-import { mapTeacherProfile } from '../lib/profile'
-import useLiveStatus from '../hooks/useLiveStatus'
+import { getToken, getProfile } from '../lib/auth'
 import JoinMeetingButton from '../components/JoinMeetingButton'
 
 // Pre-filled (not auto-sent) in the chat box when the professor hits "Reschedule".
@@ -35,53 +31,17 @@ function mapAppointmentRequest(row) {
 export default function Dashboard() {
   const navigate = useNavigate()
 
-  const [teacher, setTeacher] = useState(() => mapTeacherProfile(getProfile()))
-
   useEffect(() => {
     const token = getToken()
     if (!token) {
       navigate('/login')
-      return
     }
-    getMe(token)
-      .then((data) => {
-        persistProfile(data.profile)
-        setTeacher(mapTeacherProfile(data.profile))
-      })
-      .catch(() => {
-        // Background refresh only — keep showing the cached profile.
-      })
   }, [navigate])
 
   const [requests,        setRequests]        = useState([])
   const [requestsError,   setRequestsError]   = useState('')
   const [respondingId,    setRespondingId]    = useState(null)
   const [deletingId,      setDeletingId]      = useState(null)
-
-  // ── "Available in Room" toggle ──────────────────────────────────────
-  // Professor-only: pushes this teacher's real room availability over the
-  // same live-status channel every Explore card / Profile page listens to
-  // (see hooks/useLiveStatus.js). statusMap updates itself once the socket
-  // broadcast comes back, so isAvailable below reflects the change without
-  // any local optimistic state.
-  const { statusMap } = useLiveStatus()
-  const [togglingAvailability, setTogglingAvailability] = useState(false)
-  const [availabilityError,    setAvailabilityError]    = useState('')
-  const isAvailable = statusMap[teacher.teacherId]?.status === 'available'
-
-  const toggleAvailability = async () => {
-    const token = getToken()
-    if (!token || togglingAvailability) return
-    setTogglingAvailability(true)
-    setAvailabilityError('')
-    try {
-      await setMyAvailability(!isAvailable, token)
-    } catch (err) {
-      setAvailabilityError(err.message || 'Could not update your availability.')
-    } finally {
-      setTogglingAvailability(false)
-    }
-  }
 
   // ── Per-student chat (opened from the "Message" action on a request) ──
   const [chatWith,     setChatWith]     = useState(null) // the request row, or null when closed
@@ -187,42 +147,17 @@ export default function Dashboard() {
               <span className="text-[10px] uppercase font-bold tracking-widest">Currently Online</span>
             </div>
             <h2 className="text-5xl md:text-6xl font-headline font-extrabold text-on-surface tracking-tighter">
-              {teacher.name}
+              Appointments
             </h2>
-            <p className="text-on-surface-variant text-lg leading-relaxed max-w-xl opacity-80">
-              {teacher.designation} &middot; {teacher.department} &middot; Room {teacher.roomNumber} &middot; h-index {teacher.hIndex}
-            </p>
-            <p className="text-on-surface-variant text-sm opacity-60">{teacher.email}</p>
           </div>
 
           <div className="flex gap-3 w-full md:w-auto flex-wrap items-start">
-            <div className="flex flex-col gap-1.5">
-              <button
-                onClick={toggleAvailability}
-                disabled={togglingAvailability}
-                title="Toggle whether students see you as available in your room right now"
-                className={`px-5 py-4 rounded-xl border transition-colors flex items-center gap-2.5 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
-                  isAvailable
-                    ? 'bg-tertiary/10 border-tertiary/30 text-tertiary hover:bg-tertiary/20'
-                    : 'border-outline-variant/30 text-on-surface hover:bg-surface-container-high'
-                }`}
-              >
-                <span className={`w-2.5 h-2.5 rounded-full ${isAvailable ? 'bg-tertiary animate-pulse' : 'bg-rose-600'}`} />
-                <span className="text-sm font-bold">
-                  {isAvailable ? 'Available in Room' : 'Not in Room'}
-                </span>
-              </button>
-              {availabilityError && (
-                <p className="text-[11px] text-error px-1">{availabilityError}</p>
-              )}
-            </div>
-
             <button
               onClick={() => navigate('/appointments')}
               className="px-4 py-4 rounded-xl border border-outline-variant/30 text-on-surface hover:bg-surface-container-high transition-colors flex items-center gap-2 active:scale-95"
             >
               <span className="material-symbols-outlined text-lg">calendar_month</span>
-              <span className="text-sm font-bold hidden sm:inline">Appointments</span>
+              <span className="text-sm font-bold hidden sm:inline">Appointment History</span>
             </button>
           </div>
         </section>

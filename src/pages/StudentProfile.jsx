@@ -1,24 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import Background from '../components/Background'
 import Navbar     from '../components/Navbar'
 import BottomNav  from '../components/BottomNav'
 import ImageLightbox from '../components/ImageLightbox'
+import TimetableGrid from '../components/TimetableGrid'
 import { getMe } from '../api/auth'
-import { uploadProfilePhoto } from '../api/profile'
-import { fetchConversations } from '../api/messages'
+import { uploadProfilePhoto, removeProfilePhoto } from '../api/profile'
+import { fetchMyTimetable, uploadTimetable, clearMyTimetable } from '../api/timetable'
+import { setMyAvailability } from '../api/availability'
 import { getToken, getProfile, getRole, setProfile as persistProfile } from '../lib/auth'
-import { mapStudentProfile, mapTeacherProfile } from '../lib/profile'
+import { mapStudentProfile, mapTeacherProfile, avatarFor } from '../lib/profile'
+import useLiveStatus from '../hooks/useLiveStatus'
 
-// No achievements data source exists yet (no DB table/API) — this starts
-// empty for every profile rather than shipping fabricated sample entries.
-// The "Add Achievement" button below is a placeholder for when that exists.
-const ACHIEVEMENTS = []
-
-// Students see just the profile hero now (no tabs). Teachers still get
-// Overview + Achievements.
-const STUDENT_TABS = []
-const TEACHER_TABS = ['Overview', 'Achievements']
+// Timetable now lives here instead of its own /timetable page (the Navbar
+// link was removed) and instead of a tab on this page (Overview/Achievements
+// were removed too) — it's just shown directly for both roles, no tab
+// switching needed.
 
 const ALLOWED_PHOTO_TYPES = ['image/png', 'image/jpeg']
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // mirrors the server-side limit — see server/app/routers/profile_photo.py
@@ -26,11 +24,10 @@ const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // mirrors the server-side limit — see
 export default function StudentProfile() {
   const navigate = useNavigate()
   const photoInputRef = useRef(null)
+  const timetableFileInputRef = useRef(null)
   const [role, setRoleState] = useState(() => getRole() || 'student')
   const isTeacher = role === 'teacher'
-  const TABS = isTeacher ? TEACHER_TABS : STUDENT_TABS
 
-  const [tab, setTab] = useState('Overview')
   const [profile, setProfileState] = useState(() =>
     isTeacher ? mapTeacherProfile(getProfile()) : mapStudentProfile(getProfile())
   )
@@ -40,6 +37,7 @@ export default function StudentProfile() {
   const [loadError, setLoadError] = useState('')
 
   const [photoUploading, setPhotoUploading] = useState(false)
+  const [removingPhoto,  setRemovingPhoto]  = useState(false)
   const [photoError,     setPhotoError]     = useState('')
   const [lightboxOpen,   setLightboxOpen]   = useState(false)
 
@@ -50,10 +48,50 @@ export default function StudentProfile() {
   const [skillInput, setSkillInput] = useState('')
   const [saved,     setSaved]     = useState(false)
 
-  // Real count of distinct people this account has ever exchanged messages
-  // with (see GET /api/messages/conversations) — replaces a hardcoded
-  // "4 Active" that showed on every profile regardless of actual activity.
-  const [conversationCount, setConversationCount] = useState(0)
+  // Timetable state — moved here from the old standalone /timetable
+  // page (see src/pages/Timetable.jsx, which this duplicates for now).
+  const [ttEntries,      setTtEntries]      = useState([])
+  const [ttLoading,      setTtLoading]      = useState(true)
+  const [ttLoadError,    setTtLoadError]    = useState('')
+  const [ttUploading,    setTtUploading]    = useState(false)
+  const [ttUploadIssues, setTtUploadIssues] = useState([])
+  const [ttUploadError,  setTtUploadError]  = useState('')
+
+  // ── "Available in Room" toggle (teacher only) ──────────────────────
+  // Pushes this teacher's real room availability over the same live-status
+  // channel every Explore card / public Profile page listens to (see
+  // hooks/useLiveStatus.js). statusMap updates itself once the socket
+  // broadcast comes back, so isAvailable reflects the change without any
+  // local optimistic state.
+  const { statusMap } = useLiveStatus()
+  const [togglingAvailability, setTogglingAvailability] = useState(false)
+  const [availabilityError,    setAvailabilityError]    = useState('')
+  const isAvailable = isTeacher && statusMap[profile.teacherId]?.status === 'available'
+
+  const toggleAvailability = async () => {
+    const token = getToken()
+    if (!token || togglingAvailability) return
+    setTogglingAvailability(true)
+    setAvailabilityError('')
+    try {
+      await setMyAvailability(!isAvailable, token)
+    } catch (err) {
+      setAvailabilityError(err.message || 'Could not update your availability.')
+    } finally {
+      setTogglingAvailability(false)
+    }
+  }
+
+  const loadTimetable = () => {
+    const token = getToken()
+    if (!token) return
+    setTtLoading(true)
+    setTtLoadError('')
+    fetchMyTimetable(token)
+      .then(setTtEntries)
+      .catch((err) => setTtLoadError(err.message || 'Could not load your timetable.'))
+      .finally(() => setTtLoading(false))
+  }
 
   // Pull the freshest DB row on every visit — the cached copy from login
   // is just there so the page paints instantly.
@@ -74,11 +112,8 @@ export default function StudentProfile() {
       })
       .catch((err) => setLoadError(err.message || 'Could not load your profile.'))
 
-    fetchConversations(token)
-      .then((rows) => setConversationCount(rows.length))
-      .catch(() => {
-        // Best-effort — the stat just stays at 0 if this fails.
-      })
+    loadTimetable()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate])
 
   const openEdit = () => { setDraft({ ...profile }); setEditOpen(true); setSaved(false) }
@@ -132,6 +167,63 @@ export default function StudentProfile() {
       setPhotoError(err.message || 'Could not upload that photo.')
     } finally {
       setPhotoUploading(false)
+    }
+  }
+
+  const handleRemovePhoto = async () => {
+    const token = getToken()
+    if (!token || removingPhoto) return
+    if (!window.confirm('Remove your profile photo?')) return
+
+    setRemovingPhoto(true)
+    setPhotoError('')
+    try {
+      await removeProfilePhoto(token)
+      const placeholder = isTeacher
+        ? avatarFor(null, profile.teacherId, '0a1628')
+        : avatarFor(null, profile.rollNo, '321817')
+      setHasPhoto(false)
+      setProfileState((p) => ({ ...p, avatar: placeholder }))
+      const cached = getProfile() || {}
+      persistProfile({ ...cached, avatar_url: null })
+    } catch (err) {
+      setPhotoError(err.message || 'Could not remove your photo.')
+    } finally {
+      setRemovingPhoto(false)
+    }
+  }
+
+  const handleTimetableFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // so re-selecting the same file after fixing it still fires onChange
+    if (!file) return
+    const token = getToken()
+    if (!token) { navigate('/login'); return }
+
+    setTtUploading(true)
+    setTtUploadError('')
+    setTtUploadIssues([])
+    try {
+      const saved = await uploadTimetable(file, token)
+      setTtEntries(saved)
+    } catch (err) {
+      if (err.issues) setTtUploadIssues(err.issues)
+      else setTtUploadError(err.message || 'Could not parse that file.')
+    } finally {
+      setTtUploading(false)
+    }
+  }
+
+  const handleTimetableClear = async () => {
+    const token = getToken()
+    if (!token) return
+    try {
+      await clearMyTimetable(token)
+      setTtEntries([])
+      setTtUploadError('')
+      setTtUploadIssues([])
+    } catch (err) {
+      setTtUploadError(err.message || 'Could not clear your timetable.')
     }
   }
 
@@ -194,6 +286,21 @@ export default function StudentProfile() {
                     <span className="material-symbols-outlined text-[16px]">photo_camera</span>
                   )}
                 </button>
+                {hasPhoto && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    disabled={removingPhoto}
+                    className="absolute -bottom-1.5 -left-1.5 w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center border-2 border-surface-container shadow-lg hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Remove Profile Photo"
+                  >
+                    {removingPhoto ? (
+                      <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                    ) : (
+                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                    )}
+                  </button>
+                )}
                 <input
                   ref={photoInputRef}
                   type="file"
@@ -206,15 +313,40 @@ export default function StudentProfile() {
               {/* Name + badges */}
               <div className="flex-1">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h1 className="text-2xl md:text-3xl font-headline font-extrabold tracking-tighter text-on-surface leading-tight">
-                      {profile.name}
-                    </h1>
-                    <p className="text-on-surface-variant text-sm opacity-60 mt-0.5">
-                      {isTeacher
-                        ? <>{profile.department} &middot; Teacher ID {profile.teacherId}</>
-                        : <>{profile.rollNo} &middot; {profile.branch}</>}
-                    </p>
+                  <div className="flex items-start gap-3">
+                    <div>
+                      <h1 className="text-2xl md:text-3xl font-headline font-extrabold tracking-tighter text-on-surface leading-tight">
+                        {profile.name}
+                      </h1>
+                      <p className="text-on-surface-variant text-sm opacity-60 mt-0.5">
+                        {isTeacher
+                          ? <>{profile.department} &middot; Teacher ID {profile.teacherId}</>
+                          : <>{profile.rollNo} &middot; {profile.branch}</>}
+                      </p>
+                    </div>
+
+                    {isTeacher && (
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          onClick={toggleAvailability}
+                          disabled={togglingAvailability}
+                          title="Toggle whether students see you as available in your room right now"
+                          className={`px-4 py-2 rounded-xl border transition-colors flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${
+                            isAvailable
+                              ? 'bg-tertiary/10 border-tertiary/30 text-tertiary hover:bg-tertiary/20'
+                              : 'border-outline-variant/30 text-on-surface hover:bg-surface-container-high'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${isAvailable ? 'bg-tertiary animate-pulse' : 'bg-rose-600'}`} />
+                          <span className="text-xs font-bold whitespace-nowrap">
+                            {isAvailable ? 'Available in Room' : 'Not in Room'}
+                          </span>
+                        </button>
+                        {availabilityError && (
+                          <p className="text-[10px] text-error px-1">{availabilityError}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 flex-wrap mt-1">
                     {isTeacher ? (
@@ -271,76 +403,77 @@ export default function StudentProfile() {
           </div>
         </div>
 
-        {/* ── TABS (teacher only — students see just the hero card) ── */}
-        {TABS.length > 0 && (
-          <div className="flex gap-1 p-1 bg-surface-container/30 rounded-xl border border-white/[0.05] w-fit overflow-x-auto">
-            {TABS.map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap
-                  ${tab === t
-                    ? 'bg-primary/10 text-primary font-bold border border-primary/20'
-                    : 'text-stone-400 hover:text-stone-100 hover:bg-white/[0.04]'
-                  }`}
+        {/* ── TIMETABLE (either role — shown directly, no tabs) ── */}
+        <div>
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-on-surface-variant text-sm opacity-60">
+                Monday – Friday &middot; 8:00 AM – 5:10 PM &middot; Lunch break 1:00 – 1:50 PM
+              </p>
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                {ttEntries.length > 0 && (
+                  <button
+                    onClick={handleTimetableClear}
+                    className="px-4 py-2.5 rounded-xl border border-outline-variant/20 text-on-surface-variant text-sm font-bold hover:bg-white/[0.05] transition-all"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  onClick={() => timetableFileInputRef.current?.click()}
+                  disabled={ttUploading}
+                  className="btn-primary px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined text-[18px]">upload_file</span>
+                  {ttUploading ? 'Uploading…' : 'Upload Timetable'}
+                </button>
+                <input
+                  ref={timetableFileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleTimetableFileChange}
+                  className="hidden"
+                />
+              </div>
+              <Link
+                to="/timetable/help"
+                className="inline-flex items-center gap-1 text-xs font-bold text-primary/80 hover:text-primary transition-colors"
               >
-                {t}
-              </button>
-            ))}
+                <span className="material-symbols-outlined text-[15px]">help</span>
+                How to change timetable
+              </Link>
+            </div>
           </div>
-        )}
 
-        {/* ── OVERVIEW (teacher) ── */}
-        {tab === 'Overview' && isTeacher && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { icon: 'emoji_events', label: 'Achievements',  value: ACHIEVEMENTS.length,        color: 'text-primary'  },
-              { icon: 'forum',        label: 'Conversations', value: `${conversationCount} Active`, color: 'text-tertiary' },
-            ].map(({ icon, label, value, color }) => (
-              <div key={label} className="glass-panel rounded-xl p-4 border border-outline-variant/20 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-surface-container-high flex items-center justify-center shrink-0">
-                  <span className={`material-symbols-outlined ${color} text-[20px]`} style={{ fontVariationSettings: "'FILL' 1" }}>{icon}</span>
-                </div>
-                <div>
-                  <p className={`text-xl font-headline font-black ${color}`}>{value}</p>
-                  <p className="text-[10px] text-on-surface-variant opacity-60 uppercase tracking-wide">{label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+          {ttUploadError && (
+            <div className="mb-4 p-4 rounded-2xl bg-error-container/10 border border-error/20">
+              <p className="text-sm text-error">{ttUploadError}</p>
+            </div>
+          )}
 
-        {/* ── ACHIEVEMENTS (teacher only) ── */}
-        {tab === 'Achievements' && isTeacher && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {ACHIEVEMENTS.length === 0 && (
-              <div className="md:col-span-2 flex flex-col items-center justify-center gap-2 py-10 text-center">
-                <span className="material-symbols-outlined text-3xl text-on-surface-variant/30">emoji_events</span>
-                <p className="text-sm text-on-surface-variant opacity-60">No achievements added yet.</p>
-              </div>
-            )}
-            {ACHIEVEMENTS.map(({ icon, label, sub }) => (
-              <div key={label} className="glass-panel rounded-2xl border border-outline-variant/20 p-6 flex items-center gap-4 hover:border-primary/20 transition-all group">
-                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
-                  <span className="material-symbols-outlined text-primary text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>{icon}</span>
-                </div>
-                <div>
-                  <h4 className="font-headline font-bold text-sm text-on-surface">{label}</h4>
-                  <p className="text-[11px] text-on-surface-variant opacity-60 mt-0.5">{sub}</p>
-                </div>
-              </div>
-            ))}
-            <button className="glass-panel rounded-2xl border border-dashed border-outline-variant/30 p-6 flex items-center gap-4 hover:border-primary/30 transition-all opacity-50 hover:opacity-80">
-              <div className="w-14 h-14 rounded-2xl border border-dashed border-outline-variant/30 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-on-surface-variant text-2xl">add</span>
-              </div>
-              <div>
-                <h4 className="font-headline font-bold text-sm text-on-surface-variant">Add Achievement</h4>
-                <p className="text-[11px] text-on-surface-variant opacity-60 mt-0.5">Certifications, awards, projects</p>
-              </div>
-            </button>
-          </div>
-        )}
+          {ttUploadIssues.length > 0 && (
+            <div className="mb-4 p-4 rounded-2xl bg-error-container/10 border border-error/20">
+              <p className="text-sm font-bold text-error mb-2">
+                Couldn't save that file — {ttUploadIssues.length} issue{ttUploadIssues.length > 1 ? 's' : ''} to fix:
+              </p>
+              <ul className="space-y-1 max-h-40 overflow-y-auto">
+                {ttUploadIssues.map((issue, i) => (
+                  <li key={i} className="text-xs text-error/90">{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <TimetableGrid
+            entries={ttEntries}
+            loading={ttLoading}
+            loadError={ttLoadError}
+            emptyBody="Upload a CSV of your weekly class schedule to see it laid out here."
+          />
+        </div>
 
       </main>
 

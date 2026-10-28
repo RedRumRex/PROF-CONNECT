@@ -69,20 +69,23 @@ class MessageCreate(BaseModel):
 # recipient. GET /conversations and PATCH /conversations/{id}/read both
 # rely on being able to parse this back out, so the format is centralized
 # here rather than duplicated at each call site.
+#
+# Clicking a message notification should land on /messages (not the old
+# /appointment/{id} or /dashboard?student_id={id} targets), so the link is
+# the same shape for both roles now, with the other participant's id tucked
+# into a query param purely so it can still be parsed back out below —
+# Messages.jsx reads that same `?with=` param to open the right thread.
 def _thread_notify_link(recipient_role: str, other_id: int) -> str:
-    if recipient_role == "student":
-        return f"/appointment/{other_id}"
-    return f"/dashboard?student_id={other_id}"
+    return f"/messages?with={other_id}"
 
 
-_STUDENT_LINK_RE = re.compile(r"^/appointment/(\d+)$")
-_TEACHER_LINK_RE = re.compile(r"^/dashboard\?student_id=(\d+)$")
+_MESSAGES_LINK_RE = re.compile(r"^/messages\?with=(\d+)$")
 
 
 def _other_id_from_link(role: str, link: Optional[str]) -> Optional[int]:
     if not link:
         return None
-    match = _STUDENT_LINK_RE.match(link) if role == "student" else _TEACHER_LINK_RE.match(link)
+    match = _MESSAGES_LINK_RE.match(link)
     return int(match.group(1)) if match else None
 
 

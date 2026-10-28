@@ -46,6 +46,16 @@ export async function markAllNotificationsRead(token) {
   return handleResponse(res)
 }
 
+// DELETE /api/notifications — permanently clears the signed-in user's
+// entire notification history.
+export async function deleteAllNotifications(token) {
+  const res = await fetch(`${API_BASE_URL}/api/notifications`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return handleResponse(res)
+}
+
 let socket = null
 
 function getSocket() {
