@@ -160,7 +160,12 @@ export default function Appointments() {
               <AppointmentSection title="Pending" icon="hourglass_top" items={pending} navigate={navigate} isStudent={isStudent} showMeeting={false} onDelete={handleDelete} deletingId={deletingId} />
             )}
             <AppointmentSection title="Upcoming" icon="event_upcoming" items={upcoming} navigate={navigate} isStudent={isStudent} showMeeting onDelete={handleDelete} deletingId={deletingId} emptyText="No upcoming sessions." />
-            <AppointmentSection title="Past" icon="history" items={past} navigate={navigate} isStudent={isStudent} showMeeting={false} onDelete={handleDelete} deletingId={deletingId} emptyText="No past sessions yet." />
+            {/* Past still shows Join/Start Meeting for accepted sessions — an
+                accepted appointment stays joinable even once its scheduled
+                time has passed (only its status, not its date, gates access
+                server-side), so the button shouldn't vanish just because the
+                slot slipped into "Past". */}
+            <AppointmentSection title="Past" icon="history" items={past} navigate={navigate} isStudent={isStudent} showMeeting onDelete={handleDelete} deletingId={deletingId} emptyText="No past sessions yet." />
           </div>
         )}
       </main>

@@ -6,7 +6,12 @@ import useNotifications from '../hooks/useNotifications'
 const NAV_LINKS = [
   { to: '/home',                                          label: 'Home'     },
   { to: '/profile', pathKey: '/profile',                  label: 'Profile'  },
+  // Teachers get "Appointments" pointing at their /dashboard (requests to
+  // respond to); students get their own "Appointments" pointing at the
+  // /appointments list (sessions they've booked). Different destinations,
+  // same label, each role only ever sees its own.
   { to: '/dashboard', pathKey: '/dashboard', teacherOnly: true, label: 'Appointments' },
+  { to: '/appointments', pathKey: '/appointments', studentOnly: true, label: 'Appointments' },
   { to: '/messages', pathKey: '/messages',                label: 'Messages' },
   // Timetable moved into the Profile page — no longer a standalone nav
   // link (it's still reachable at /timetable directly if anything still
@@ -38,7 +43,9 @@ export default function Navbar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const role = getRole()
-  const visibleLinks = NAV_LINKS.filter((link) => !link.teacherOnly || role === 'teacher')
+  const visibleLinks = NAV_LINKS.filter((link) =>
+    (!link.teacherOnly || role === 'teacher') && (!link.studentOnly || role !== 'teacher')
+  )
 
   const handleLogout = () => {
     clearRole()
